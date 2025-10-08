@@ -1,8 +1,8 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { DatabaseProvider } from '@/contexts/DatabaseContext';
 import { LocationProvider } from '@/contexts/LocationContext';
 
 export const unstable_settings = {
@@ -12,12 +12,14 @@ export const unstable_settings = {
 export default function RootLayout() {
 
   return (
-    <LocationProvider>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
-        <StatusBar style="auto" />
-    </LocationProvider>
+    <DatabaseProvider>
+      <LocationProvider>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+          <StatusBar style="auto" />
+      </LocationProvider>
+    </DatabaseProvider>
   );
 }

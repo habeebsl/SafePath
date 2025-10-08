@@ -1,37 +1,92 @@
-import React, { useState } from 'react';
+import { Icon } from '@/components/Icon';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { useDatabase } from '@/contexts/DatabaseContext';
+import { Marker } from '@/types/marker';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
-  View,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
+  View,
 } from 'react-native';
-import { Marker } from '@/types/marker';
-import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { MarkerIcon } from './MarkerIcon';
-import { Icon } from '@/components/Icon';
 
 interface MarkerDetailsModalProps {
   visible: boolean;
   marker: Marker | null;
-  userVote: 'agree' | 'disagree' | null;
+  userVote?: 'agree' | 'disagree' | null; // Make optional since we'll fetch it
   onClose: () => void;
-  onVote: (vote: 'agree' | 'disagree') => void;
+  onVote?: (vote: 'agree' | 'disagree') => void; // Make optional
 }
 
 export function MarkerDetailsModal({
   visible,
   marker,
-  userVote,
+  userVote: providedUserVote,
   onClose,
-  onVote,
+  onVote: providedOnVote,
 }: MarkerDetailsModalProps) {
+  const { voteOnMarker, getUserVoteForMarker, refreshMarkers, deviceId } = useDatabase();
+  const [userVote, setUserVote] = useState<'agree' | 'disagree' | null>(providedUserVote || null);
+  const [isVoting, setIsVoting] = useState(false);
+  const [isLoadingVote, setIsLoadingVote] = useState(false);
+
+  // Fetch user's vote when modal opens
+  useEffect(() => {
+    if (visible && marker) {
+      setIsLoadingVote(true);
+      getUserVoteForMarker(marker.id)
+        .then((vote) => {
+          setUserVote(vote);
+        })
+        .catch((error) => {
+          console.error('Error fetching user vote:', error);
+        })
+        .finally(() => {
+          setIsLoadingVote(false);
+        });
+    }
+  }, [visible, marker?.id]);
+
+  // Early return AFTER all hooks
   if (!marker) return null;
 
   const config = MARKER_CONFIG[marker.type];
   const totalVotes = marker.agrees + marker.disagrees;
   const timeAgo = getTimeAgo(marker.lastVerified);
+  const isOwnMarker = deviceId && marker.createdBy === deviceId;
+
+  // Handle voting
+  const handleVote = async (vote: 'agree' | 'disagree') => {
+    if (!marker || isVoting) return;
+
+    setIsVoting(true);
+    try {
+      await voteOnMarker(marker.id, vote);
+      setUserVote(vote);
+      
+      // Refresh markers to get updated counts
+      await refreshMarkers();
+      
+      // Call provided onVote callback if exists
+      if (providedOnVote) {
+        providedOnVote(vote);
+      }
+      
+      // Close modal after successful vote
+      setTimeout(() => {
+        onClose();
+      }, 500);
+    } catch (error: any) {
+      console.error('Error voting:', error);
+      alert(error.message || 'Failed to record vote. Please try again.');
+    } finally {
+      setIsVoting(false);
+    }
+  };
 
   return (
     <Modal
@@ -139,7 +194,19 @@ export function MarkerDetailsModal({
             {/* User's Vote */}
             <View style={styles.voteSection}>
               <Text style={styles.sectionTitle}>Your Vote</Text>
-              {userVote ? (
+              {isOwnMarker ? (
+                <View style={styles.ownMarkerContainer}>
+                  <Icon name="info-circle" size={16} color="#666" />
+                  <Text style={styles.ownMarkerText}>
+                    You created this marker. You cannot vote on your own markers.
+                  </Text>
+                </View>
+              ) : isLoadingVote ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#666" />
+                  <Text style={styles.loadingText}>Checking your vote...</Text>
+                </View>
+              ) : userVote ? (
                 <Text style={styles.votedText}>
                   You {userVote === 'agree' ? 'agreed' : 'disagreed'} with this marker
                 </Text>
@@ -150,25 +217,47 @@ export function MarkerDetailsModal({
                   </Text>
                   <View style={styles.voteButtons}>
                     <TouchableOpacity
-                      style={[styles.voteButton, styles.agreeButton]}
-                      onPress={() => onVote('agree')}
+                      style={[
+                        styles.voteButton,
+                        styles.agreeButton,
+                        isVoting && styles.voteButtonDisabled
+                      ]}
+                      onPress={() => handleVote('agree')}
+                      disabled={isVoting}
                     >
-                      <View style={styles.voteButtonContent}>
-                        <Icon name="thumbs-up" size={20} color="#22C55E" />
-                        <Text style={styles.voteButtonText}>Agree</Text>
-                      </View>
-                      <Text style={styles.voteButtonSubtext}>Information is accurate</Text>
+                      {isVoting ? (
+                        <ActivityIndicator size="small" color="#22C55E" />
+                      ) : (
+                        <>
+                          <View style={styles.voteButtonContent}>
+                            <Icon name="thumbs-up" size={20} color="#22C55E" />
+                            <Text style={styles.voteButtonText}>Agree</Text>
+                          </View>
+                          <Text style={styles.voteButtonSubtext}>Information is accurate</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                     
                     <TouchableOpacity
-                      style={[styles.voteButton, styles.disagreeButton]}
-                      onPress={() => onVote('disagree')}
+                      style={[
+                        styles.voteButton,
+                        styles.disagreeButton,
+                        isVoting && styles.voteButtonDisabled
+                      ]}
+                      onPress={() => handleVote('disagree')}
+                      disabled={isVoting}
                     >
-                      <View style={styles.voteButtonContent}>
-                        <Icon name="thumbs-down" size={20} color="#EF4444" />
-                        <Text style={styles.voteButtonText}>Disagree</Text>
-                      </View>
-                      <Text style={styles.voteButtonSubtext}>Information is incorrect</Text>
+                      {isVoting ? (
+                        <ActivityIndicator size="small" color="#EF4444" />
+                      ) : (
+                        <>
+                          <View style={styles.voteButtonContent}>
+                            <Icon name="thumbs-down" size={20} color="#EF4444" />
+                            <Text style={styles.voteButtonText}>Disagree</Text>
+                          </View>
+                          <Text style={styles.voteButtonSubtext}>Information is incorrect</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </>
@@ -390,6 +479,31 @@ const styles = StyleSheet.create({
   voteSection: {
     marginBottom: 20,
   },
+  ownMarkerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  ownMarkerText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#666',
+  },
   votedText: {
     fontSize: 14,
     color: '#666',
@@ -412,6 +526,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 2,
+  },
+  voteButtonDisabled: {
+    opacity: 0.6,
   },
   voteButtonContent: {
     flexDirection: 'row',

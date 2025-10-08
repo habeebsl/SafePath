@@ -1,29 +1,31 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
-import { WebView } from 'react-native-webview';
-import { useLocation } from '@/contexts/LocationContext';
+import { Icon } from '@/components/Icon';
 import region from '@/config/region.json';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { useDatabase } from '@/contexts/DatabaseContext';
+import { useLocation } from '@/contexts/LocationContext';
+import { Marker, MarkerType } from '@/types/marker';
+import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { AddMarkerModal } from './markers/AddMarkerModal';
 import { MarkerDetailsModal } from './markers/MarkerDetailsModal';
-import { MarkerType, Marker } from '@/types/marker';
-import { MARKER_CONFIG } from '@/constants/marker-icons';
-import { Icon } from '@/components/Icon';
 
 export default function MapComponent() {
   const { location, isTracking } = useLocation();
+  const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   // Modal state
   const [showAddMarker, setShowAddMarker] = useState(false);
   const [showMarkerDetails, setShowMarkerDetails] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
-  
-  // Temporary: Store markers in state (will move to database later)
-  const [markers, setMarkers] = useState<Marker[]>([]);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
@@ -38,6 +40,20 @@ export default function MapComponent() {
       setInitialLocationSet(true);
     }
   }, [location]);
+
+  // Monitor network connectivity status
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected === true && state.isInternetReachable !== false);
+    });
+
+    // Get initial network state
+    NetInfo.fetch().then(state => {
+      setIsOnline(state.isConnected === true && state.isInternetReachable !== false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Update marker position when location changes (but don't recenter map)
   useEffect(() => {
@@ -83,6 +99,39 @@ export default function MapComponent() {
         .leaflet-top.leaflet-right {
           top: 60px;
         }
+        
+        /* Position zoom controls above recenter button */
+        .leaflet-top.leaflet-right {
+          top: auto !important;
+          bottom: 150px; /* Position above recenter button (which is at 100px) */
+        }
+        
+        /* Style zoom control buttons to match recenter button */
+        .leaflet-control-zoom a {
+          width: 40px !important;
+          height: 40px !important;
+          line-height: 40px !important;
+          font-size: 20px !important;
+          border-radius: 4px !important;
+        }
+        
+        .leaflet-control-zoom {
+          border: none !important;
+        }
+        
+        .leaflet-control-zoom a {
+          border: 2px solid rgba(0,0,0,0.2) !important;
+          margin-bottom: 4px;
+        }
+        
+        .leaflet-control-zoom a:first-child {
+          border-radius: 4px !important;
+        }
+        
+        .leaflet-control-zoom a:last-child {
+          border-radius: 4px !important;
+        }
+        
         /* Style for recenter button */
         .recenter-button {
           position: absolute;
@@ -98,7 +147,6 @@ export default function MapComponent() {
           align-items: center;
           justify-content: center;
           font-size: 20px;
-          box-shadow: 0 1px 5px rgba(0,0,0,0.4);
           z-index: 1000;
         }
         .recenter-button:hover {
@@ -218,66 +266,56 @@ export default function MapComponent() {
   };
 
   // Handle saving new marker
-  const handleSaveMarker = (data: {
+  const handleSaveMarker = async (data: {
     type: MarkerType;
     title: string;
     description: string;
     latitude: number;
     longitude: number;
   }) => {
-    const newMarker: Marker = {
-      id: `marker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type: data.type,
-      latitude: data.latitude,
-      longitude: data.longitude,
-      title: data.title,
-      description: data.description,
-      createdBy: 'local_device', // TODO: Replace with actual device ID
-      createdAt: Date.now(),
-      lastVerified: Date.now(),
-      agrees: 1,
-      disagrees: 0,
-      confidenceScore: 100,
-      syncedToServer: false,
-    };
+    // Check if database is ready
+    if (!dbReady) {
+      alert('Database is still initializing. Please wait a moment and try again.');
+      return;
+    }
 
-    // Add to state
-    setMarkers(prev => [...prev, newMarker]);
-    
-    // Add to map
-    addMarkerToMap(newMarker);
-    
-    // Close modal
-    setShowAddMarker(false);
-    setSelectedLocation(null);
+    try {
+      console.log('🗺️ Saving new marker...');
+      const newMarker: Marker = {
+        id: `marker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: data.type,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        title: data.title,
+        description: data.description,
+        createdBy: deviceId || 'unknown_device',
+        createdAt: Date.now(),
+        lastVerified: Date.now(),
+        agrees: 1,
+        disagrees: 0,
+        confidenceScore: 100,
+        syncedToServer: false,
+      };
+
+      // Add to database (will automatically sync to cloud when online)
+      await dbAddMarker(newMarker);
+      
+      // Add to map
+      addMarkerToMap(newMarker);
+      
+      // Close modal
+      setShowAddMarker(false);
+      setSelectedLocation(null);
+    } catch (error) {
+      console.error('Error saving marker:', error);
+      alert(`Failed to save marker: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
-  // Handle voting on marker
+  // Handle voting on marker - delegated to MarkerDetailsModal
   const handleVote = (vote: 'agree' | 'disagree') => {
-    if (!selectedMarker) return;
-
-    // Update marker
-    setMarkers(prev => prev.map(m => {
-      if (m.id === selectedMarker.id) {
-        const updated = {
-          ...m,
-          agrees: vote === 'agree' ? m.agrees + 1 : m.agrees,
-          disagrees: vote === 'disagree' ? m.disagrees + 1 : m.disagrees,
-          lastVerified: Date.now(),
-        };
-        
-        // Recalculate confidence
-        const totalVotes = updated.agrees + updated.disagrees;
-        const agreeRatio = updated.agrees / totalVotes;
-        updated.confidenceScore = Math.round(agreeRatio * 100);
-        
-        return updated;
-      }
-      return m;
-    }));
-
-    // TODO: Store vote in database to prevent duplicate votes
-    
+    // This is now handled by the database context in MarkerDetailsModal
+    // Just close the modal after voting
     setShowMarkerDetails(false);
     setSelectedMarker(null);
   };
@@ -320,12 +358,55 @@ export default function MapComponent() {
     webViewRef.current.injectJavaScript(js);
   };
 
+  // Clear all markers from map
+  const clearAllMarkers = () => {
+    if (!webViewRef.current || !mapReady) return;
+
+    const js = `
+      (function() {
+        if (!window.map || !window.safePathMarkers) return;
+        
+        // Remove all markers from map
+        Object.values(window.safePathMarkers).forEach(function(marker) {
+          window.map.removeLayer(marker);
+        });
+        
+        // Clear the markers object
+        window.safePathMarkers = {};
+      })();
+    `;
+    
+    webViewRef.current.injectJavaScript(js);
+  };
+
+  // Refresh all markers on map
+  const refreshMapMarkers = () => {
+    if (!mapReady) return;
+    
+    console.log('🗺️ Refreshing map markers...');
+    clearAllMarkers();
+    
+    // Re-add all markers
+    setTimeout(() => {
+      markers.forEach(marker => addMarkerToMap(marker));
+      console.log(`✅ Refreshed ${markers.length} markers on map`);
+    }, 100); // Small delay to ensure clear completes
+  };
+
   // Load existing markers when map is ready
   useEffect(() => {
     if (mapReady && markers.length > 0) {
       markers.forEach(marker => addMarkerToMap(marker));
     }
   }, [mapReady]);
+
+  // Update markers on map when markers change (e.g., after sync)
+  useEffect(() => {
+    if (mapReady && !refreshing) {
+      // Don't refresh during manual sync (we handle it explicitly there)
+      refreshMapMarkers();
+    }
+  }, [markers.length, mapReady]);
 
   // Helper function to generate marker HTML (inline version)
   const generateMarkerHTML = (marker: Marker): string => {
@@ -379,6 +460,30 @@ export default function MapComponent() {
     return configs[type] || configs.danger;
   };
 
+  // Handle manual sync
+  const handleManualSync = async () => {
+    setRefreshing(true);
+    try {
+      console.log('🔄 Starting manual sync...');
+      
+      // Trigger sync with cloud
+      await triggerSync();
+      
+      // Refresh markers from database
+      await refreshMarkers();
+      
+      // Refresh markers on the map
+      refreshMapMarkers();
+      
+      console.log('✅ Manual sync completed');
+    } catch (error) {
+      console.error('❌ Manual sync failed:', error);
+      alert('Sync failed. Check your internet connection.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <WebView
@@ -406,6 +511,33 @@ export default function MapComponent() {
         </View>
       )}
 
+      {/* Sync Button */}
+      {dbReady && (
+        <View style={styles.syncButtonContainer}>
+          <TouchableOpacity
+            style={styles.syncButton}
+            onPress={handleManualSync}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Icon name="sync-alt" size={16} color="#fff" />
+            )}
+            
+            {/* Network Status Dot */}
+            {!refreshing && (
+              <View style={[styles.statusDot, isOnline ? styles.statusOnline : styles.statusOffline]} />
+            )}
+          </TouchableOpacity>
+          
+          {/* Network Status Text */}
+          <View style={[styles.statusTextContainer, isOnline ? styles.statusTextOnline : styles.statusTextOffline]}>
+            <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
+          </View>
+        </View>
+      )}
+
       {/* Current location info */}
       {location && (
         <View style={styles.locationInfo}>
@@ -420,6 +552,14 @@ export default function MapComponent() {
               ±{location.coords.accuracy?.toFixed(0)}m
             </Text>
           </View>
+        </View>
+      )}
+
+      {/* Database status indicator */}
+      {!dbReady && (
+        <View style={styles.dbStatusContainer}>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.dbStatusText}>Initializing database...</Text>
         </View>
       )}
 
@@ -498,6 +638,80 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CD964',
   },
   trackingText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  syncButtonContainer: {
+    position: 'absolute',
+    top: 60,
+    right: 10,
+    alignItems: 'center',
+  },
+  syncButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: 'rgba(59, 130, 246, 0.9)',
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  statusDot: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.9)', // Match sync button background
+  },
+  statusOnline: {
+    backgroundColor: '#22C55E', // Green
+  },
+  statusOffline: {
+    backgroundColor: '#EF4444', // Red
+  },
+  statusTextContainer: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  statusTextOnline: {
+    backgroundColor: 'rgba(34, 197, 94, 0.9)', // Green
+  },
+  statusTextOffline: {
+    backgroundColor: 'rgba(239, 68, 68, 0.9)', // Red
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  dbStatusContainer: {
+    position: 'absolute',
+    top: 110,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  dbStatusText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
