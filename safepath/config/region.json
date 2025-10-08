@@ -1,0 +1,60 @@
+{
+  "id": "east-africa",
+  "name": "East Africa",
+  "displayName": "SafePath East Africa",
+  "version": "1.0.0",
+  "mapVersion": "2024.10",
+  
+  "center": {
+    "latitude": 1.0,
+    "longitude": 37.0
+  },
+  
+  "defaultZoom": {
+    "latitudeDelta": 15,
+    "longitudeDelta": 15
+  },
+  
+  "countries": [
+    {
+      "name": "sudan",
+      "displayName": "Sudan",
+      "priority": "CRITICAL",
+      "center": { "latitude": 15.5, "longitude": 32.5 }
+    },
+    {
+      "name": "south-sudan",
+      "displayName": "South Sudan",
+      "priority": "CRITICAL",
+      "center": { "latitude": 7.3, "longitude": 30.2 }
+    },
+    {
+      "name": "kenya",
+      "displayName": "Kenya",
+      "priority": "HIGH",
+      "center": { "latitude": -1.286389, "longitude": 36.817223 }
+    },
+    {
+      "name": "uganda",
+      "displayName": "Uganda",
+      "priority": "HIGH",
+      "center": { "latitude": 0.347596, "longitude": 32.582520 }
+    },
+    {
+      "name": "ethiopia",
+      "displayName": "Ethiopia",
+      "priority": "HIGH",
+      "center": { "latitude": 9.145, "longitude": 40.489673 }
+    },
+    {
+      "name": "somalia",
+      "displayName": "Somalia",
+      "priority": "MEDIUM",
+      "center": { "latitude": 5.152149, "longitude": 46.199616 }
+    }
+  ],
+  
+  "packageName": "com.safepath.eastafrica",
+  "bundleId": "com.safepath.eastafrica",
+  "primaryColor": "#E74C3C"
+}

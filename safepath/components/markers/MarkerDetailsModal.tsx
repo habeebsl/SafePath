@@ -1,0 +1,475 @@
+import React, { useState } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+} from 'react-native';
+import { Marker } from '@/types/marker';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { MarkerIcon } from './MarkerIcon';
+import { Icon } from '@/components/Icon';
+
+interface MarkerDetailsModalProps {
+  visible: boolean;
+  marker: Marker | null;
+  userVote: 'agree' | 'disagree' | null;
+  onClose: () => void;
+  onVote: (vote: 'agree' | 'disagree') => void;
+}
+
+export function MarkerDetailsModal({
+  visible,
+  marker,
+  userVote,
+  onClose,
+  onVote,
+}: MarkerDetailsModalProps) {
+  if (!marker) return null;
+
+  const config = MARKER_CONFIG[marker.type];
+  const totalVotes = marker.agrees + marker.disagrees;
+  const timeAgo = getTimeAgo(marker.lastVerified);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+      statusBarTranslucent={true}
+    >
+      <View style={styles.overlay}>
+        <TouchableOpacity
+          style={styles.overlayTouchable}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={styles.modal}>
+            {/* Header with marker type */}
+            <View style={[styles.header, { backgroundColor: config.color + '20' }]}>
+              <View style={styles.headerTop}>
+                <View style={[styles.markerBadge, { backgroundColor: config.color }]}>
+                  <MarkerIcon type={marker.type} size={28} color="#fff" />
+                </View>
+              <View style={styles.headerTextContainer}>
+                <Text style={[styles.markerType, { color: config.color }]}>
+                  {config.label}
+                </Text>
+                <Text style={styles.markerTitle}>{marker.title}</Text>
+              </View>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView 
+            style={styles.content} 
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            removeClippedSubviews={true}
+            overScrollMode="never"
+          >
+            {/* Location Info */}
+            <View style={styles.infoRow}>
+              <Icon name="map-marker-alt" size={16} color="#666" style={styles.infoIcon} />
+              <Text style={styles.infoText}>
+                {marker.latitude.toFixed(4)}°N, {marker.longitude.toFixed(4)}°E
+              </Text>
+            </View>
+
+            <View style={styles.infoRow}>
+              <Icon name="clock" size={16} color="#666" style={styles.infoIcon} />
+              <Text style={styles.infoText}>Updated {timeAgo}</Text>
+            </View>
+
+            {/* Description */}
+            {marker.description && (
+              <View style={styles.descriptionBox}>
+                <Text style={styles.description}>{marker.description}</Text>
+              </View>
+            )}
+
+            {/* Confidence Score */}
+            <View style={styles.confidenceSection}>
+              <View style={styles.confidenceHeader}>
+                <Text style={styles.sectionTitle}>Community Confidence</Text>
+                <Text style={[styles.confidenceScore, getConfidenceStyle(marker.confidenceScore)]}>
+                  {Math.round(marker.confidenceScore)}%
+                </Text>
+              </View>
+              
+              {/* Confidence Bar */}
+              <View style={styles.confidenceBar}>
+                <View
+                  style={[
+                    styles.confidenceFill,
+                    {
+                      width: `${marker.confidenceScore}%`,
+                      backgroundColor: getConfidenceColor(marker.confidenceScore),
+                    },
+                  ]}
+                />
+              </View>
+
+              {/* Votes */}
+              <View style={styles.votesRow}>
+                <View style={styles.voteItem}>
+                  <Text style={styles.voteCount}>{marker.agrees}</Text>
+                  <View style={styles.voteLabelContainer}>
+                    <Icon name="check-circle" size={14} color="#4CAF50" />
+                    <Text style={styles.voteLabel}>Agree</Text>
+                  </View>
+                </View>
+                <View style={styles.voteDivider} />
+                <View style={styles.voteItem}>
+                  <Text style={styles.voteCount}>{marker.disagrees}</Text>
+                  <View style={styles.voteLabelContainer}>
+                    <Icon name="times-circle" size={14} color="#F44336" />
+                    <Text style={styles.voteLabel}>Disagree</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* User's Vote */}
+            <View style={styles.voteSection}>
+              <Text style={styles.sectionTitle}>Your Vote</Text>
+              {userVote ? (
+                <Text style={styles.votedText}>
+                  You {userVote === 'agree' ? 'agreed' : 'disagreed'} with this marker
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.votePrompt}>
+                    Help verify this information. Are you at or near this location?
+                  </Text>
+                  <View style={styles.voteButtons}>
+                    <TouchableOpacity
+                      style={[styles.voteButton, styles.agreeButton]}
+                      onPress={() => onVote('agree')}
+                    >
+                      <View style={styles.voteButtonContent}>
+                        <Icon name="thumbs-up" size={20} color="#22C55E" />
+                        <Text style={styles.voteButtonText}>Agree</Text>
+                      </View>
+                      <Text style={styles.voteButtonSubtext}>Information is accurate</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[styles.voteButton, styles.disagreeButton]}
+                      onPress={() => onVote('disagree')}
+                    >
+                      <View style={styles.voteButtonContent}>
+                        <Icon name="thumbs-down" size={20} color="#EF4444" />
+                        <Text style={styles.voteButtonText}>Disagree</Text>
+                      </View>
+                      <Text style={styles.voteButtonSubtext}>Information is incorrect</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+
+            {/* Safety Warning */}
+            <View style={styles.warningBox}>
+              <Icon name="exclamation-triangle" size={16} color="#FF9800" style={styles.warningIcon} />
+              <Text style={styles.warningText}>
+                Always verify information on the ground. Situations can change rapidly.
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Close Button */}
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.closeActionButton} onPress={onClose}>
+              <Text style={styles.closeActionButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}// Helper functions
+function getTimeAgo(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+function getConfidenceColor(confidence: number): string {
+  if (confidence >= 80) return '#22C55E'; // Green
+  if (confidence >= 50) return '#F59E0B'; // Yellow
+  if (confidence >= 20) return '#F97316'; // Orange
+  return '#EF4444'; // Red
+}
+
+function getConfidenceStyle(confidence: number) {
+  return {
+    color: getConfidenceColor(confidence),
+  };
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  overlayTouchable: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  header: {
+    padding: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  markerBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  markerBadgeText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  markerType: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  markerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 20,
+    color: '#666',
+  },
+  content: {
+    maxHeight: 500,
+  },
+  contentContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoIcon: {
+    marginRight: 8,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  descriptionBox: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  description: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+  },
+  confidenceSection: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  confidenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  confidenceScore: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  confidenceBar: {
+    height: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  confidenceFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  votesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  voteItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  voteDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#ddd',
+  },
+  voteCount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  voteLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4,
+  },
+  voteLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voteSection: {
+    marginBottom: 20,
+  },
+  votedText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  votePrompt: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  voteButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  voteButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  voteButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  agreeButton: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#22C55E',
+  },
+  disagreeButton: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#EF4444',
+  },
+  voteButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  voteButtonSubtext: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center'
+  },
+  warningBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  warningIcon: {
+    marginRight: 8,
+    marginTop: 2,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 16,
+    flex: 1,
+  },
+  footer: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  closeActionButton: {
+    backgroundColor: '#f5f5f5',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  closeActionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+});
