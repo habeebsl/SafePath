@@ -1,15 +1,83 @@
 import { Marker, MarkerType } from '@/types/marker';
 import NetInfo from '@react-native-community/netinfo';
 import {
-    getAllMarkers,
-    getUnsyncedMarkers,
-    markMarkerAsSynced,
-    upsertMarker,
+  getAllMarkers,
+  getUnsyncedMarkers,
+  markMarkerAsSynced,
+  upsertMarker,
 } from './database';
 import { isSupabaseConfigured, supabase, SupabaseMarker } from './supabase';
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let isCurrentlySyncing = false;
+
+// Distance threshold for considering markers as duplicates (in meters)
+const DUPLICATE_DISTANCE_THRESHOLD = 50;
+
+/**
+ * Calculate distance between two coordinates using Haversine formula
+ * Returns distance in meters
+ */
+function calculateDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+/**
+ * Find if a similar marker exists in the cloud
+ * Returns the existing marker if found, null otherwise
+ */
+async function findSimilarMarkerInCloud(
+  marker: Marker
+): Promise<SupabaseMarker | null> {
+  if (!supabase) return null;
+
+  try {
+    // Get all markers of the same type from cloud
+    const { data, error } = await supabase
+      .from('markers')
+      .select('*')
+      .eq('type', marker.type);
+
+    if (error || !data) return null;
+
+    // Check each marker for proximity
+    for (const cloudMarker of data) {
+      const distance = calculateDistance(
+        marker.latitude,
+        marker.longitude,
+        cloudMarker.latitude,
+        cloudMarker.longitude
+      );
+
+      // If within threshold distance, consider it a duplicate
+      if (distance <= DUPLICATE_DISTANCE_THRESHOLD) {
+        console.log(`🔍 Found similar marker within ${distance.toFixed(0)}m:`, cloudMarker.id);
+        return cloudMarker;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error checking for similar markers:', error);
+    return null;
+  }
+}
 
 /**
  * Start the sync service
@@ -90,6 +158,7 @@ async function performSync(): Promise<void> {
 
 /**
  * Push unsynced local markers to Supabase
+ * Includes spatial deduplication to prevent duplicate markers at same location
  */
 async function pushLocalMarkersToCloud(): Promise<void> {
   if (!supabase) return;
@@ -105,30 +174,68 @@ async function pushLocalMarkersToCloud(): Promise<void> {
 
   for (const marker of unsyncedMarkers) {
     try {
-      const supabaseMarker: SupabaseMarker = {
-        id: marker.id,
-        type: marker.type,
-        latitude: marker.latitude,
-        longitude: marker.longitude,
-        title: marker.title,
-        description: marker.description || null,
-        created_by: marker.createdBy,
-        created_at: marker.createdAt,
-        last_verified: marker.lastVerified,
-        agrees: marker.agrees,
-        disagrees: marker.disagrees,
-        confidence_score: marker.confidenceScore,
-      };
+      // Check if a similar marker already exists in the cloud
+      const existingMarker = await findSimilarMarkerInCloud(marker);
 
-      const { error } = await supabase
-        .from('markers')
-        .upsert(supabaseMarker, { onConflict: 'id' });
+      if (existingMarker) {
+        // Similar marker found - merge instead of creating duplicate
+        console.log(`🔀 Merging marker ${marker.id} into existing ${existingMarker.id}`);
+        
+        // Merge vote counts
+        const mergedAgrees = existingMarker.agrees + marker.agrees;
+        const mergedDisagrees = existingMarker.disagrees + marker.disagrees;
+        const totalVotes = mergedAgrees + mergedDisagrees;
+        const mergedConfidenceScore = Math.round((mergedAgrees / totalVotes) * 100);
 
-      if (error) {
-        console.error('❌ Error pushing marker:', marker.id, error);
+        // Update the existing marker with merged data
+        const { error: updateError } = await supabase
+          .from('markers')
+          .update({
+            agrees: mergedAgrees,
+            disagrees: mergedDisagrees,
+            confidence_score: mergedConfidenceScore,
+            last_verified: Math.max(existingMarker.last_verified, marker.lastVerified),
+            // Keep the better description (longer or existing)
+            description: marker.description && marker.description.length > (existingMarker.description?.length || 0)
+              ? marker.description
+              : existingMarker.description,
+          })
+          .eq('id', existingMarker.id);
+
+        if (updateError) {
+          console.error('❌ Error merging marker:', updateError);
+        } else {
+          // Mark local marker as synced (merged)
+          await markMarkerAsSynced(marker.id);
+          console.log(`✅ Merged marker ${marker.id} → ${existingMarker.id}`);
+        }
       } else {
-        await markMarkerAsSynced(marker.id);
-        console.log('✅ Pushed marker:', marker.id);
+        // No similar marker found - create new one
+        const supabaseMarker: SupabaseMarker = {
+          id: marker.id,
+          type: marker.type,
+          latitude: marker.latitude,
+          longitude: marker.longitude,
+          title: marker.title,
+          description: marker.description || null,
+          created_by: marker.createdBy,
+          created_at: marker.createdAt,
+          last_verified: marker.lastVerified,
+          agrees: marker.agrees,
+          disagrees: marker.disagrees,
+          confidence_score: marker.confidenceScore,
+        };
+
+        const { error } = await supabase
+          .from('markers')
+          .upsert(supabaseMarker, { onConflict: 'id' });
+
+        if (error) {
+          console.error('❌ Error pushing marker:', marker.id, error);
+        } else {
+          await markMarkerAsSynced(marker.id);
+          console.log('✅ Pushed new marker:', marker.id);
+        }
       }
     } catch (error) {
       console.error('❌ Error pushing marker:', marker.id, error);
