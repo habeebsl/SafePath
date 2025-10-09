@@ -8,6 +8,7 @@
  */
 
 import { Coordinates, Marker } from '@/types/marker';
+import polyline from '@mapbox/polyline';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeDestinationPoint, getDistance, getRhumbLineBearing } from 'geolib';
 
@@ -42,7 +43,7 @@ interface RouteCache {
 // ============================================================================
 
 const ORS_API_KEY = process.env.EXPO_PUBLIC_OPENROUTE_KEY || '';
-const ORS_BASE_URL = 'https://api.openrouteservice.org/v2/directions/foot-walking';
+const ORS_BASE_URL = 'https://api.openrouteservice.org/v2/directions/foot-walking/json';
 
 // Cache settings
 const CACHE_KEY_PREFIX = 'route_cache_';
@@ -138,17 +139,67 @@ async function calculateRouteOnline(
   
   const data = await response.json();
   
+  console.log('📦 OpenRouteService response:', JSON.stringify(data, null, 2));
+  
   if (!data.routes || data.routes.length === 0) {
     throw new Error('No route found');
   }
   
   const route = data.routes[0];
   
+  console.log('🛣️ Route geometry type:', typeof route.geometry);
+  console.log('🛣️ Route geometry:', route.geometry);
+  
   // Convert geometry to waypoints
-  // ORS returns coordinates as [lon, lat]
-  const waypoints: Coordinates[] = route.geometry.coordinates.map(
-    ([lon, lat]: [number, number]) => ({ lat, lon })
+  let waypoints: Coordinates[];
+  
+  if (typeof route.geometry === 'string') {
+    // Encoded polyline format - decode it
+    console.log('🔓 Decoding polyline...');
+    const decoded = polyline.decode(route.geometry);
+    // polyline.decode returns [[lat, lon], [lat, lon], ...]
+    waypoints = decoded.map(([lat, lon]: [number, number]) => ({ lat, lon }));
+    console.log(`✅ Decoded ${waypoints.length} waypoints from polyline`);
+  } else if (route.geometry.coordinates && Array.isArray(route.geometry.coordinates)) {
+    // GeoJSON format with coordinates array (lon, lat order)
+    waypoints = route.geometry.coordinates.map(
+      ([lon, lat]: [number, number]) => ({ lat, lon })
+    );
+  } else {
+    throw new Error('Unknown geometry format in route response');
+  }
+  
+  // OpenRouteService snaps points to nearest road, so the route might not start
+  // exactly at user's position or end exactly at destination marker.
+  // Add exact start/end points to ensure trail goes from user to destination
+  const firstPoint = waypoints[0];
+  const lastPoint = waypoints[waypoints.length - 1];
+  
+  // Check if first waypoint is different from actual start (user snapped to road)
+  const startDistance = getDistance(
+    { latitude: from.lat, longitude: from.lon },
+    { latitude: firstPoint.lat, longitude: firstPoint.lon }
   );
+  
+  // Check if last waypoint is different from actual end (destination snapped to road)
+  const endDistance = getDistance(
+    { latitude: to.lat, longitude: to.lon },
+    { latitude: lastPoint.lat, longitude: lastPoint.lon }
+  );
+  
+  // If start point was snapped to road (>5m away), add actual user position first
+  if (startDistance > 5) {
+    console.log(`📍 Adding exact start point (${startDistance.toFixed(0)}m from road)`);
+    waypoints.unshift({ lat: from.lat, lon: from.lon });
+  }
+  
+  // If end point was snapped to road (>5m away), add actual destination last
+  if (endDistance > 5) {
+    console.log(`📍 Adding exact destination point (${endDistance.toFixed(0)}m from road)`);
+    waypoints.push({ lat: to.lat, lon: to.lon });
+  }
+  
+  console.log(`🗺️ Final route has ${waypoints.length} waypoints (start → road → destination)`);
   
   // Extract turn-by-turn instructions if available
   const instructions: string[] = [];

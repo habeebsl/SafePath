@@ -88,11 +88,12 @@ export default function MapComponent() {
     currentTrailIdRef.current = newTrailId;
 
     if (activeTrail) {
-      // Draw trail
+      // Draw trail (auto-zoom on first creation)
       const waypointsJson = JSON.stringify(activeTrail.route.waypoints);
+      const isOffline = activeTrail.route.strategy === 'offline';
       const js = `
         if (window.drawTrail) {
-          window.drawTrail(${waypointsJson}, '${activeTrail.color}');
+          window.drawTrail(${waypointsJson}, '${activeTrail.color}', true, ${isOffline});
         }
         true;
       `;
@@ -110,6 +111,46 @@ export default function MapComponent() {
       console.log('🗺️ Trail cleared from map');
     }
   }, [activeTrail, mapReady]);
+
+  // Update trail as user moves (show remaining path from current position)
+  useEffect(() => {
+    if (!location || !activeTrail || !mapReady || !webViewRef.current) return;
+    
+    const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
+    const waypoints = activeTrail.route.waypoints;
+    
+    // Find closest waypoint to current position
+    let closestIndex = 0;
+    let minDistance = Infinity;
+    
+    waypoints.forEach((point, index) => {
+      const dx = point.lat - currentPos.lat;
+      const dy = point.lon - currentPos.lon;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    });
+    
+    // Create remaining waypoints: current position + waypoints ahead
+    const remainingWaypoints = [
+      currentPos,
+      ...waypoints.slice(closestIndex + 1)
+    ];
+    
+    // Update trail to show only remaining path
+    const waypointsJson = JSON.stringify(remainingWaypoints);
+    const isOffline = activeTrail.route.strategy === 'offline';
+    const js = `
+      if (window.drawTrail) {
+        window.drawTrail(${waypointsJson}, '${activeTrail.color}', false, ${isOffline});
+      }
+      true;
+    `;
+    webViewRef.current.injectJavaScript(js);
+  }, [location, activeTrail, mapReady]);
 
   // Update user position on trail as they move
   useEffect(() => {
@@ -281,7 +322,7 @@ export default function MapComponent() {
         var userMarkerOnTrail = null;
 
         // Function to draw trail on map
-        window.drawTrail = function(waypoints, color) {
+        window.drawTrail = function(waypoints, color, shouldFitBounds, isOffline) {
           console.log('🗺️ Drawing trail with ' + waypoints.length + ' waypoints');
           
           // Remove existing trail
@@ -294,20 +335,23 @@ export default function MapComponent() {
             return [wp.lat, wp.lon];
           });
           
-          // Draw trail polyline
+          // Draw trail polyline with different style for offline routes
           trailPolyline = L.polyline(latLngs, {
             color: color,
             weight: 4,
-            opacity: 0.8,
+            opacity: isOffline ? 0.6 : 0.8,
             lineJoin: 'round',
-            lineCap: 'round'
+            lineCap: 'round',
+            dashArray: isOffline ? '10, 10' : null  // Dashed line for offline
           }).addTo(map);
           
-          // Zoom to show entire trail
-          map.fitBounds(trailPolyline.getBounds(), {
-            padding: [50, 50],
-            maxZoom: 16
-          });
+          // Only zoom to show entire trail on initial creation
+          if (shouldFitBounds === true) {
+            map.fitBounds(trailPolyline.getBounds(), {
+              padding: [50, 50],
+              maxZoom: 16
+            });
+          }
           
           // Update user marker on trail
           if (waypoints.length > 0) {

@@ -29,6 +29,7 @@ export function TrailBottomBar() {
   }
   
   const trailStyle = TRAIL_STYLES[activeTrail.context];
+  const isOfflineRoute = activeTrail.route.strategy === 'offline';
   
   return (
     <View style={[styles.container, { borderTopColor: trailStyle.color }]}>
@@ -36,12 +37,14 @@ export function TrailBottomBar() {
       <View style={styles.infoSection}>
         <Text style={styles.label} numberOfLines={1}>
           {trailStyle.label}
+          {isOfflineRoute && ' (Offline)'}
         </Text>
         <Text style={styles.destination} numberOfLines={1}>
           📍 {activeTrail.targetMarker.title}
         </Text>
         <Text style={styles.stats}>
           {formatDistance(activeTrail.distanceRemaining)} • ⏱️ {activeTrail.etaMinutes} min
+          {isOfflineRoute && ' ⚠️'}
         </Text>
       </View>
       
