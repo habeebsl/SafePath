@@ -1,7 +1,9 @@
 import { Icon } from '@/components/Icon';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
+import { useTrail } from '@/contexts/TrailContext';
 import { Marker } from '@/types/marker';
+import { TrailContext } from '@/types/trail';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,6 +32,7 @@ export function MarkerDetailsModal({
   onVote: providedOnVote,
 }: MarkerDetailsModalProps) {
   const { voteOnMarker, getUserVoteForMarker, refreshMarkers, deviceId } = useDatabase();
+  const { createTrail } = useTrail();
   const [userVote, setUserVote] = useState<'agree' | 'disagree' | null>(providedUserVote || null);
   const [isVoting, setIsVoting] = useState(false);
   const [isLoadingVote, setIsLoadingVote] = useState(false);
@@ -85,6 +88,34 @@ export function MarkerDetailsModal({
       alert(error.message || 'Failed to record vote. Please try again.');
     } finally {
       setIsVoting(false);
+    }
+  };
+
+  // Handle navigation
+  const handleNavigate = async () => {
+    if (!marker) return;
+    
+    try {
+      // Determine trail context based on marker type
+      let trailContext: TrailContext;
+      switch (marker.type) {
+        case 'safe':
+        case 'shelter':
+        case 'medical':
+          trailContext = TrailContext.NAVIGATE_TO_SAFE;
+          break;
+        case 'danger':
+        case 'combat':
+          trailContext = TrailContext.AVOID_DANGER;
+          break;
+        default:
+          trailContext = TrailContext.CUSTOM;
+      }
+      
+      await createTrail(marker, trailContext);
+      onClose();
+    } catch (error) {
+      console.error('Error creating trail:', error);
     }
   };
 
@@ -273,9 +304,20 @@ export function MarkerDetailsModal({
             </View>
           </ScrollView>
 
-          {/* Close Button */}
+          {/* Action Buttons */}
           <View style={styles.footer}>
-            <TouchableOpacity style={styles.closeActionButton} onPress={onClose}>
+            <TouchableOpacity 
+              style={styles.navigateButton} 
+              onPress={handleNavigate}
+            >
+              <Icon name="location-arrow" size={18} color="#FFFFFF" library="fa5" />
+              <Text style={styles.navigateButtonText}>Navigate Here</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.closeActionButton} 
+              onPress={onClose}
+            >
               <Text style={styles.closeActionButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -577,8 +619,26 @@ const styles = StyleSheet.create({
     padding: 20,
     borderTopWidth: 1,
     borderTopColor: '#eee',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  navigateButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  navigateButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   closeActionButton: {
+    flex: 1,
     backgroundColor: '#f5f5f5',
     padding: 16,
     borderRadius: 12,

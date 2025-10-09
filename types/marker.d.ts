@@ -10,6 +10,11 @@ export type MarkerType =
 
 export type VoteType = 'agree' | 'disagree';
 
+export interface Coordinates {
+  lat: number;
+  lon: number;
+}
+
 export interface Marker {
   id: string;
   type: MarkerType;

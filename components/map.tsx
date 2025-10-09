@@ -1,8 +1,10 @@
 import { Icon } from '@/components/Icon';
+import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
+import { useTrail } from '@/contexts/TrailContext';
 import { Marker, MarkerType } from '@/types/marker';
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
@@ -15,11 +17,15 @@ import { MarkerDetailsModal } from './markers/MarkerDetailsModal';
 export default function MapComponent() {
   const { location, isTracking } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
+  const { activeTrail } = useTrail();
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  
+  // Track current trail ID to prevent re-rendering on progress updates
+  const currentTrailIdRef = useRef<string | null>(null);
 
   // Modal state
   const [showAddMarker, setShowAddMarker] = useState(false);
@@ -69,6 +75,54 @@ export default function MapComponent() {
       webViewRef.current.injectJavaScript(js);
     }
   }, [location, mapReady]);
+
+  // Render active trail on map (only when trail changes, not on progress updates)
+  useEffect(() => {
+    if (!mapReady || !webViewRef.current) return;
+
+    const newTrailId = activeTrail ? `${activeTrail.targetMarker.id}-${activeTrail.context}` : null;
+    
+    // Only update if trail actually changed (not just progress update)
+    if (currentTrailIdRef.current === newTrailId) return;
+    
+    currentTrailIdRef.current = newTrailId;
+
+    if (activeTrail) {
+      // Draw trail
+      const waypointsJson = JSON.stringify(activeTrail.route.waypoints);
+      const js = `
+        if (window.drawTrail) {
+          window.drawTrail(${waypointsJson}, '${activeTrail.color}');
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(js);
+      console.log('🗺️ Trail rendered on map');
+    } else {
+      // Clear trail
+      const js = `
+        if (window.clearTrail) {
+          window.clearTrail();
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(js);
+      console.log('🗺️ Trail cleared from map');
+    }
+  }, [activeTrail, mapReady]);
+
+  // Update user position on trail as they move
+  useEffect(() => {
+    if (location && activeTrail && mapReady && webViewRef.current) {
+      const js = `
+        if (window.updateUserMarkerOnTrail) {
+          window.updateUserMarkerOnTrail(${location.coords.latitude}, ${location.coords.longitude});
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(js);
+    }
+  }, [location, activeTrail, mapReady]);
 
   // Memoize HTML content so it only creates ONCE (not on every location update)
   // Only recreate when we get initial location or API key changes
@@ -220,6 +274,74 @@ export default function MapComponent() {
             animate: true,
             duration: 0.5
           });
+        };
+
+        // Trail rendering variables
+        var trailPolyline = null;
+        var userMarkerOnTrail = null;
+
+        // Function to draw trail on map
+        window.drawTrail = function(waypoints, color) {
+          console.log('🗺️ Drawing trail with ' + waypoints.length + ' waypoints');
+          
+          // Remove existing trail
+          if (trailPolyline) {
+            map.removeLayer(trailPolyline);
+          }
+          
+          // Convert waypoints to LatLng array
+          var latLngs = waypoints.map(function(wp) {
+            return [wp.lat, wp.lon];
+          });
+          
+          // Draw trail polyline
+          trailPolyline = L.polyline(latLngs, {
+            color: color,
+            weight: 4,
+            opacity: 0.8,
+            lineJoin: 'round',
+            lineCap: 'round'
+          }).addTo(map);
+          
+          // Zoom to show entire trail
+          map.fitBounds(trailPolyline.getBounds(), {
+            padding: [50, 50],
+            maxZoom: 16
+          });
+          
+          // Update user marker on trail
+          if (waypoints.length > 0) {
+            updateUserMarkerOnTrail(waypoints[0].lat, waypoints[0].lon);
+          }
+        };
+
+        // Function to clear trail from map
+        window.clearTrail = function() {
+          console.log('🗺️ Clearing trail');
+          
+          if (trailPolyline) {
+            map.removeLayer(trailPolyline);
+            trailPolyline = null;
+          }
+          if (userMarkerOnTrail) {
+            map.removeLayer(userMarkerOnTrail);
+            userMarkerOnTrail = null;
+          }
+        };
+
+        // Function to update user position marker on trail
+        window.updateUserMarkerOnTrail = function(lat, lon) {
+          if (userMarkerOnTrail) {
+            userMarkerOnTrail.setLatLng([lat, lon]);
+          } else {
+            userMarkerOnTrail = L.circleMarker([lat, lon], {
+              radius: 10,
+              color: '#FFFFFF',
+              fillColor: '#007AFF',
+              fillOpacity: 1,
+              weight: 3
+            }).addTo(map);
+          }
         };
 
         // Notify React Native that map is ready
@@ -588,6 +710,9 @@ export default function MapComponent() {
         }}
         onVote={handleVote}
       />
+
+      {/* Trail Bottom Bar */}
+      <TrailBottomBar />
     </View>
   );
 }
