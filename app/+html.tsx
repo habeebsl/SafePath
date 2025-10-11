@@ -1,7 +1,6 @@
 import { ScrollViewStyleReset } from 'expo-router/html';
 
 export default function Root({ children }: { children: React.ReactNode }) {
-  console.log('📄 +html.tsx Root component rendering...');
   return (
     <html lang="en">
       <head>

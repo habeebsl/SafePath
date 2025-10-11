@@ -117,9 +117,7 @@ export const Alert = {
     message?: string,
     buttons?: AlertButton[]
   ) => {
-    console.log('🔔 Alert.alert called:', { title, message, buttons, hasController: !!alertController });
     if (alertController) {
-      console.log('✅ Using custom alert controller');
       alertController.show(title, message, buttons);
     } else {
       console.warn('⚠️ AlertProvider not mounted. Using native alert as fallback.');

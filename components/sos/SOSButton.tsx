@@ -39,12 +39,6 @@ export function SOSButton() {
 
   // Disabled if already has active SOS
   const isDisabled = !!myActiveSOSRequest || isCreatingSOS;
-  
-  console.log('🆘 SOS Button state:', {
-    myActiveSOSRequest: myActiveSOSRequest?.id,
-    isCreatingSOS,
-    isDisabled
-  });
 
   return (
     <TouchableOpacity
