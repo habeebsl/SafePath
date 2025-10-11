@@ -82,6 +82,7 @@ const styles = StyleSheet.create({
     elevation: 8,
     borderWidth: 3,
     borderColor: '#fff',
+    zIndex: 1000,
   },
   buttonDisabled: {
     backgroundColor: '#999',

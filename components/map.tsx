@@ -1,8 +1,6 @@
-import { Icon } from '@/components/Icon';
-import { AddMarkerModal } from '@/components/markers/AddMarkerModal';
-import { MarkerDetailsModal } from '@/components/markers/MarkerDetailsModal';
+import { MapModals } from '@/components/map/MapModals';
+import { MapOverlays } from '@/components/map/MapOverlays';
 import { SOSButton } from '@/components/sos/SOSButton';
-import { SOSDetailsModal } from '@/components/sos/SOSDetailsModal';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
@@ -11,12 +9,15 @@ import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
+import { useMapModals } from '@/hooks/useMapModals';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { Marker, MarkerType } from '@/types/marker';
 import { SOSMarker } from '@/types/sos';
-import NetInfo from '@react-native-community/netinfo';
+import { handleManualSync, handleSaveMarker } from '@/utils/map-handlers';
+import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function MapComponent() {
@@ -24,24 +25,18 @@ export default function MapComponent() {
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
   const { activeSOSMarkers } = useSOS();
   const { activeTrail } = useTrail();
+  
+  // Custom hooks for state management
+  const isOnline = useNetworkStatus();
+  const modals = useMapModals();
+  
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
   
   // Track current trail ID to prevent re-rendering on progress updates
   const currentTrailIdRef = useRef<string | null>(null);
-
-  // Modal state
-  const [showAddMarker, setShowAddMarker] = useState(false);
-  const [showMarkerDetails, setShowMarkerDetails] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
-  
-  // SOS modal state
-  const [showSOSDetails, setShowSOSDetails] = useState(false);
-  const [selectedSOSMarker, setSelectedSOSMarker] = useState<SOSMarker | null>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
@@ -70,20 +65,6 @@ export default function MapComponent() {
       webViewRef.current.injectJavaScript(js);
     }
   }, [initialLocationSet, mapReady]);
-
-  // Monitor network connectivity status
-  useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      setIsOnline(state.isConnected === true && state.isInternetReachable !== false);
-    });
-
-    // Get initial network state
-    NetInfo.fetch().then(state => {
-      setIsOnline(state.isConnected === true && state.isInternetReachable !== false);
-    });
-
-    return () => unsubscribe();
-  }, []);
 
   // Update marker position when location changes (but don't recenter map)
   useEffect(() => {
@@ -141,28 +122,7 @@ export default function MapComponent() {
     if (!location || !activeTrail || !mapReady || !webViewRef.current) return;
     
     const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
-    const waypoints = activeTrail.route.waypoints;
-    
-    // Find closest waypoint to current position
-    let closestIndex = 0;
-    let minDistance = Infinity;
-    
-    waypoints.forEach((point, index) => {
-      const dx = point.lat - currentPos.lat;
-      const dy = point.lon - currentPos.lon;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestIndex = index;
-      }
-    });
-    
-    // Create remaining waypoints: current position + waypoints ahead
-    const remainingWaypoints = [
-      currentPos,
-      ...waypoints.slice(closestIndex + 1)
-    ];
+    const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
     
     // Update trail to show only remaining path
     const waypointsJson = JSON.stringify(remainingWaypoints);
@@ -441,21 +401,18 @@ export default function MapComponent() {
         setMapReady(true);
       } else if (data.type === 'addMarker') {
         // Long-press detected - show add marker modal
-        setSelectedLocation({ lat: data.lat, lng: data.lng });
-        setShowAddMarker(true);
+        modals.openAddMarker(data.lat, data.lng);
       } else if (data.type === 'markerClick') {
         // Regular marker clicked
         const marker = markers.find(m => m.id === data.markerId);
         if (marker) {
-          setSelectedMarker(marker);
-          setShowMarkerDetails(true);
+          modals.openMarkerDetails(marker);
         }
       } else if (data.type === 'sosMarkerClick') {
         // SOS marker clicked
         const sosMarker = activeSOSMarkers.find(m => m.id === data.sosMarkerId);
         if (sosMarker) {
-          setSelectedSOSMarker(sosMarker);
-          setShowSOSDetails(true);
+          modals.openSOSDetails(sosMarker);
         }
       }
     } catch (e) {
@@ -464,58 +421,34 @@ export default function MapComponent() {
   };
 
   // Handle saving new marker
-  const handleSaveMarker = async (data: {
+  const onSaveMarker = async (data: {
     type: MarkerType;
     title: string;
     description: string;
     latitude: number;
     longitude: number;
   }) => {
-    // Check if database is ready
-    if (!dbReady) {
-      alert('Database is still initializing. Please wait a moment and try again.');
-      return;
-    }
-
     try {
-      console.log('🗺️ Saving new marker...');
-      const newMarker: Marker = {
-        id: `marker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        type: data.type,
-        latitude: data.latitude,
-        longitude: data.longitude,
-        title: data.title,
-        description: data.description,
-        createdBy: deviceId || 'unknown_device',
-        createdAt: Date.now(),
-        lastVerified: Date.now(),
-        agrees: 1,
-        disagrees: 0,
-        confidenceScore: 100,
-        syncedToServer: false,
-      };
-
-      // Add to database (will automatically sync to cloud when online)
-      await dbAddMarker(newMarker);
-      
-      // Add to map
-      addMarkerToMap(newMarker);
-      
-      // Close modal
-      setShowAddMarker(false);
-      setSelectedLocation(null);
+      await handleSaveMarker({
+        data,
+        deviceId,
+        dbReady,
+        dbAddMarker,
+        onSuccess: (marker) => {
+          addMarkerToMap(marker);
+          modals.closeAddMarker();
+        },
+      });
     } catch (error) {
-      console.error('Error saving marker:', error);
-      alert(`Failed to save marker: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(error instanceof Error ? error.message : 'Failed to save marker');
     }
   };
 
-  // Handle voting on marker - delegated to MarkerDetailsModal
-  const handleVote = (vote: 'agree' | 'disagree') => {
-    // This is now handled by the database context in MarkerDetailsModal
+  // Handle voting on marker
+  const onVote = (vote: 'agree' | 'disagree') => {
+    // This is handled by the database context in MarkerDetailsModal
     // Just close the modal after voting
-    setShowMarkerDetails(false);
-    setSelectedMarker(null);
+    modals.closeMarkerDetails();
   };
 
   // Add marker to Leaflet map
@@ -695,21 +628,14 @@ export default function MapComponent() {
 
 
   // Handle manual sync
-  const handleManualSync = async () => {
+  const onManualSync = async () => {
     setRefreshing(true);
     try {
-      console.log('🔄 Starting manual sync...');
-      
-      // Trigger sync with cloud
-      await triggerSync();
-      
-      // Refresh markers from database
-      await refreshMarkers();
-      
-      // Refresh markers on the map
-      refreshMapMarkers();
-      
-      console.log('✅ Manual sync completed');
+      await handleManualSync({
+        triggerSync,
+        refreshMarkers,
+        onSuccess: refreshMapMarkers,
+      });
     } catch (error) {
       console.error('❌ Manual sync failed:', error);
       alert('Sync failed. Check your internet connection.');
@@ -731,96 +657,29 @@ export default function MapComponent() {
         startInLoadingState={true}
       />
 
-      {/* Region badge */}
-      <View style={styles.regionBadge}>
-        <Icon name="map-marker-alt" size={12} color="#fff" style={styles.badgeIcon} />
-        <Text style={styles.regionText}>{region.displayName}</Text>
-      </View>
+      {/* Map Overlays (badges, status indicators, sync button) */}
+      <MapOverlays
+        isTracking={isTracking}
+        dbReady={dbReady}
+        location={location}
+        isOnline={isOnline}
+        refreshing={refreshing}
+        onSync={onManualSync}
+      />
 
-      {/* Tracking status */}
-      {isTracking && (
-        <View style={styles.trackingBadge}>
-          <View style={styles.trackingDot} />
-          <Text style={styles.trackingText}>Tracking</Text>
-        </View>
-      )}
-
-      {/* Sync Button */}
-      {dbReady && (
-        <View style={styles.syncButtonContainer}>
-          <TouchableOpacity
-            style={styles.syncButton}
-            onPress={handleManualSync}
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Icon name="sync-alt" size={16} color="#fff" />
-            )}
-            
-            {/* Network Status Dot */}
-            {!refreshing && (
-              <View style={[styles.statusDot, isOnline ? styles.statusOnline : styles.statusOffline]} />
-            )}
-          </TouchableOpacity>
-          
-          {/* Network Status Text */}
-          <View style={[styles.statusTextContainer, isOnline ? styles.statusTextOnline : styles.statusTextOffline]}>
-            <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
-          </View>
-        </View>
-      )}
-
-      {/* Current location info */}
-      {location && (
-        <View style={styles.locationInfo}>
-          <View style={styles.locationTextContainer}>
-            <View style={styles.coordinatesRow}>
-              <Icon name="map-marker-alt" size={14} color="#fff" style={styles.locationIcon} />
-              <Text style={styles.locationText}>
-                {location.coords.latitude.toFixed(4)}, {location.coords.longitude.toFixed(4)}
-              </Text>
-            </View>
-            <Text style={styles.accuracyText}>
-              ±{location.coords.accuracy?.toFixed(0)}m
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Database status indicator */}
-      {!dbReady && (
-        <View style={styles.dbStatusContainer}>
-          <ActivityIndicator size="small" color="#fff" />
-          <Text style={styles.dbStatusText}>Initializing database...</Text>
-        </View>
-      )}
-
-      {/* Add Marker Modal */}
-      {selectedLocation && (
-        <AddMarkerModal
-          visible={showAddMarker}
-          latitude={selectedLocation.lat}
-          longitude={selectedLocation.lng}
-          onClose={() => {
-            setShowAddMarker(false);
-            setSelectedLocation(null);
-          }}
-          onSave={handleSaveMarker}
-        />
-      )}
-
-      {/* Marker Details Modal */}
-      <MarkerDetailsModal
-        visible={showMarkerDetails}
-        marker={selectedMarker}
-        userVote={null} // TODO: Check if user already voted
-        onClose={() => {
-          setShowMarkerDetails(false);
-          setSelectedMarker(null);
-        }}
-        onVote={handleVote}
+      {/* All Modals (markers and SOS) */}
+      <MapModals
+        showAddMarker={modals.showAddMarker}
+        selectedLocation={modals.selectedLocation}
+        onCloseAddMarker={modals.closeAddMarker}
+        onSaveMarker={onSaveMarker}
+        showMarkerDetails={modals.showMarkerDetails}
+        selectedMarker={modals.selectedMarker}
+        onCloseMarkerDetails={modals.closeMarkerDetails}
+        onVote={onVote}
+        showSOSDetails={modals.showSOSDetails}
+        selectedSOSMarker={modals.selectedSOSMarker}
+        onCloseSOSDetails={modals.closeSOSDetails}
       />
 
       {/* SOS Notification Banner */}
@@ -828,16 +687,6 @@ export default function MapComponent() {
 
       {/* SOS Button */}
       <SOSButton />
-
-      {/* SOS Details Modal */}
-      <SOSDetailsModal
-        visible={showSOSDetails}
-        sosMarker={selectedSOSMarker}
-        onClose={() => {
-          setShowSOSDetails(false);
-          setSelectedSOSMarker(null);
-        }}
-      />
 
       {/* Trail Bottom Bar */}
       <TrailBottomBar />
@@ -851,157 +700,5 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
-  },
-  regionBadge: {
-    position: 'absolute',
-    top: 60,
-    left: 10,
-    backgroundColor: 'rgba(231, 76, 60, 0.9)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  badgeIcon: {
-    marginRight: 0,
-  },
-  regionText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  trackingBadge: {
-    position: 'absolute',
-    top: 100,
-    left: 10,
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  trackingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4CD964',
-  },
-  trackingText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  syncButtonContainer: {
-    position: 'absolute',
-    top: 60,
-    right: 10,
-    alignItems: 'center',
-  },
-  syncButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: 'rgba(59, 130, 246, 0.9)',
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  statusDot: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: 'rgba(59, 130, 246, 0.9)', // Match sync button background
-  },
-  statusOnline: {
-    backgroundColor: '#22C55E', // Green
-  },
-  statusOffline: {
-    backgroundColor: '#EF4444', // Red
-  },
-  statusTextContainer: {
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  statusTextOnline: {
-    backgroundColor: 'rgba(34, 197, 94, 0.9)', // Green
-  },
-  statusTextOffline: {
-    backgroundColor: 'rgba(239, 68, 68, 0.9)', // Red
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  dbStatusContainer: {
-    position: 'absolute',
-    top: 110,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  dbStatusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  locationInfo: {
-    position: 'absolute',
-    bottom: 20,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  locationIcon: {
-    marginRight: 0,
-  },
-  locationTextContainer: {
-    flex: 1,
-    flexDirection: 'column'
-  },
-  coordinatesRow: {
-    gap: 5,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  locationText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  accuracyText: {
-    color: '#aaa',
-    fontSize: 12,
   },
 });
