@@ -3,33 +3,33 @@
  * Manages SOS requests and responses
  */
 
+import { Alert } from '@/components/Alert';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import {
-    SOS_ARRIVAL_THRESHOLD,
-    SOS_COOLDOWN_MINUTES,
-    SOS_MAX_RESPONDERS,
-    SOS_PROXIMITY_RADIUS,
-    SOSMarker,
-    SOSNotification,
-    SOSResponse
+  SOS_ARRIVAL_THRESHOLD,
+  SOS_COOLDOWN_MINUTES,
+  SOS_MAX_RESPONDERS,
+  SOS_PROXIMITY_RADIUS,
+  SOSMarker,
+  SOSNotification,
+  SOSResponse
 } from '@/types/sos';
 import {
-    addSOSResponse,
-    cancelSOSResponse as dbCancelSOSResponse,
-    completeSOSMarker as dbCompleteSOSMarker,
-    createSOSMarker as dbCreateSOSMarker,
-    deleteSOSMarker,
-    getActiveSOSMarkers,
-    getDeviceId,
-    getSOSResponses,
-    getUserActiveSOSRequest,
-    getUserActiveSOSResponse,
-    updateResponderLocation,
+  addSOSResponse,
+  cancelSOSResponse as dbCancelSOSResponse,
+  completeSOSMarker as dbCompleteSOSMarker,
+  createSOSMarker as dbCreateSOSMarker,
+  deleteSOSMarker,
+  getActiveSOSMarkers,
+  getDeviceId,
+  getSOSResponses,
+  getUserActiveSOSRequest,
+  getUserActiveSOSResponse,
+  updateResponderLocation,
 } from '@/utils/database';
 import { getDistance } from 'geolib';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Alert } from 'react-native';
 
 interface SOSContextType {
   activeSOSMarkers: SOSMarker[];

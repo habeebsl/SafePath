@@ -4,24 +4,24 @@
  * Manages navigation trail state across the app
  */
 
+import { Alert } from '@/components/Alert';
 import { Marker } from '@/types/marker';
 import {
-    ARRIVAL_THRESHOLD,
-    Trail,
-    TRAIL_PRIORITIES,
-    TRAIL_STYLES,
-    TrailContext as TrailContextType
+  ARRIVAL_THRESHOLD,
+  Trail,
+  TRAIL_PRIORITIES,
+  TRAIL_STYLES,
+  TrailContext as TrailContextType
 } from '@/types/trail';
 import {
-    calculateProgress,
-    calculateRoute,
-    formatDistance,
-    getRemainingDistance,
-    RoutingStrategy
+  calculateProgress,
+  calculateRoute,
+  formatDistance,
+  getRemainingDistance,
+  RoutingStrategy
 } from '@/utils/routing';
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Alert } from 'react-native';
 import { useLocation } from './LocationContext';
 
 interface TrailContextValue {

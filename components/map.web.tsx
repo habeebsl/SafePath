@@ -1,3 +1,4 @@
+import { Alert } from '@/components/Alert';
 import { MapModals } from '@/components/map/MapModals';
 import { MapOverlays } from '@/components/map/MapOverlays';
 import { SOSButton } from '@/components/sos/SOSButton';
@@ -153,7 +154,7 @@ export default function MapComponent() {
         },
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save marker');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save marker');
     }
   };
 
@@ -257,7 +258,7 @@ export default function MapComponent() {
       });
     } catch (error) {
       console.error('❌ Manual sync failed:', error);
-      alert('Sync failed. Check your internet connection.');
+      Alert.alert('Sync Failed', 'Check your internet connection and try again.');
     } finally {
       setRefreshing(false);
     }
@@ -537,6 +538,7 @@ export default function MapComponent() {
         isOnline={isOnline}
         refreshing={refreshing}
         onSync={onManualSync}
+        activeTrail={activeTrail}
       />
 
       {/* All Modals (markers and SOS) */}
@@ -614,7 +616,7 @@ if (typeof document !== 'undefined') {
   style.textContent = `
     /* Position only zoom control, not all bottom-right controls */
     .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-      margin-bottom: 150px !important;
+      margin-bottom: 130px !important;
     }
     .leaflet-control-zoom a {
       width: 40px !important;

@@ -3,6 +3,7 @@
  * Shows different views based on user role (creator/responder/viewer)
  */
 
+import { Alert } from '@/components/Alert';
 import { Icon } from '@/components/Icon';
 import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
@@ -11,7 +12,6 @@ import { TrailContext } from '@/types/trail';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Modal,
     ScrollView,
     StyleSheet,

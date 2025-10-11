@@ -1,5 +1,6 @@
 /**
- * Map UI overlays - badges, status indicators, and buttons
+ * Map UI overlays - badges, status indicators, and buttons (Web version)
+ * Responsive design that adapts to different screen sizes
  */
 
 import { Icon } from '@/components/Icon';
@@ -7,7 +8,7 @@ import region from '@/config/region.json';
 import { Trail } from '@/types/trail';
 import { LocationObject } from 'expo-location';
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface MapOverlaysProps {
   isTracking: boolean;
@@ -28,6 +29,11 @@ export function MapOverlays({
   onSync,
   activeTrail,
 }: MapOverlaysProps) {
+  console.log('🌐 MapOverlays.web.tsx rendering - location:', !!location, 'activeTrail:', !!activeTrail);
+  
+  const screenWidth = Dimensions.get('window').width;
+  const isSmallScreen = screenWidth < 600;
+  
   return (
     <>
       {/* Region badge */}
@@ -71,17 +77,15 @@ export function MapOverlays({
         </View>
       )}
 
-      {/* Current location info - only show when no active trail */}
+      {/* Current location info - Only show when NO active trail */}
       {location && !activeTrail && (
-        <View style={styles.locationInfo}>
+        <View style={[styles.locationInfo, isSmallScreen && styles.locationInfoSmall]}>
+          <Icon name="map-marker-alt" size={isSmallScreen ? 12 : 16} color="#fff" style={styles.locationIcon} />
           <View style={styles.locationTextContainer}>
-            <View style={styles.coordinatesRow}>
-              <Icon name="map-marker-alt" size={14} color="#fff" style={styles.locationIcon} />
-              <Text style={styles.locationText}>
-                {location.coords.latitude.toFixed(4)}, {location.coords.longitude.toFixed(4)}
-              </Text>
-            </View>
-            <Text style={styles.accuracyText}>
+            <Text style={[styles.locationText, isSmallScreen && styles.locationTextSmall]}>
+              {location.coords.latitude.toFixed(4)}, {location.coords.longitude.toFixed(4)}
+            </Text>
+            <Text style={[styles.accuracyText, isSmallScreen && styles.accuracyTextSmall]}>
               ±{location.coords.accuracy?.toFixed(0)}m
             </Text>
           </View>
@@ -231,40 +235,56 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  // Location info for web - responsive design
   locationInfo: {
     position: 'absolute',
     bottom: 20,
     left: 10,
     right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    maxWidth: '100%' as any, // Responsive width
     zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   locationIcon: {
     marginRight: 0,
   },
   locationTextContainer: {
     flex: 1,
-    flexDirection: 'column'
-  },
-  coordinatesRow: {
-    gap: 5,
-    flexDirection: 'row',
-    alignItems: 'center'
+    flexDirection: 'column',
   },
   locationText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 2,
+    marginBottom: 3,
+    flexShrink: 1, // Allow text to shrink on small screens
   },
   accuracyText: {
     color: '#aaa',
     fontSize: 12,
+  },
+  // Small screen adjustments
+  locationInfoSmall: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  locationTextSmall: {
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  accuracyTextSmall: {
+    fontSize: 10,
   },
 });

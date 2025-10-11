@@ -3,11 +3,12 @@
  * Floating button on map to send SOS requests
  */
 
+import { Alert } from '@/components/Alert';
 import { Icon } from '@/components/Icon';
 import { useSOS } from '@/contexts/SOSContext';
 import * as Haptics from 'expo-haptics';
 import React from 'react';
-import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 export function SOSButton() {
   const { createSOSRequest, myActiveSOSRequest, isCreatingSOS } = useSOS();
