@@ -79,6 +79,102 @@ export async function initDatabase(): Promise<void> {
       );
     `);
 
+    // Create SOS markers table
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sos_markers (
+        id TEXT PRIMARY KEY,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+        completed_at INTEGER,
+        expires_at INTEGER,
+        synced_to_cloud INTEGER DEFAULT 0
+      );
+    `);
+
+    // Create SOS responses table
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sos_responses (
+        id TEXT PRIMARY KEY,
+        sos_marker_id TEXT NOT NULL,
+        responder_device_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        current_latitude REAL,
+        current_longitude REAL,
+        distance_meters REAL,
+        eta_minutes INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('active', 'cancelled', 'arrived')),
+        synced_to_cloud INTEGER DEFAULT 0,
+        UNIQUE(sos_marker_id, responder_device_id)
+      );
+    `);
+
+    // Migrate old sos_responses table if it exists with old schema
+    try {
+      // Check if old column exists
+      const tableInfo = await db.getAllAsync<any>('PRAGMA table_info(sos_responses)');
+      const hasOldColumn = tableInfo.some((col: any) => col.name === 'responded_at');
+      
+      if (hasOldColumn) {
+        console.log('🔄 Migrating sos_responses table to new schema...');
+        
+        // Create new table with correct schema
+        await db.execAsync(`
+          CREATE TABLE sos_responses_new (
+            id TEXT PRIMARY KEY,
+            sos_marker_id TEXT NOT NULL,
+            responder_device_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            current_latitude REAL,
+            current_longitude REAL,
+            distance_meters REAL,
+            eta_minutes INTEGER,
+            status TEXT NOT NULL CHECK (status IN ('active', 'cancelled', 'arrived')),
+            synced_to_cloud INTEGER DEFAULT 0,
+            UNIQUE(sos_marker_id, responder_device_id)
+          );
+        `);
+        
+        // Copy data from old table, mapping responded_at to both created_at and updated_at
+        await db.execAsync(`
+          INSERT INTO sos_responses_new 
+            (id, sos_marker_id, responder_device_id, created_at, updated_at, 
+             current_latitude, current_longitude, distance_meters, eta_minutes, status, synced_to_cloud)
+          SELECT 
+            id, sos_marker_id, responder_device_id, responded_at, responded_at,
+            current_latitude, current_longitude, distance_meters, eta_minutes, 
+            CASE 
+              WHEN status = 'responding' THEN 'active'
+              ELSE status 
+            END,
+            synced_to_cloud
+          FROM sos_responses;
+        `);
+        
+        // Drop old table and rename new one
+        await db.execAsync(`
+          DROP TABLE sos_responses;
+          ALTER TABLE sos_responses_new RENAME TO sos_responses;
+        `);
+        
+        console.log('✅ Migration completed successfully');
+      }
+    } catch (migrationError) {
+      console.log('ℹ️ No migration needed or already completed');
+    }
+
+    // Create indexes for SOS tables
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_sos_markers_status ON sos_markers(status);
+      CREATE INDEX IF NOT EXISTS idx_sos_markers_location ON sos_markers(latitude, longitude);
+      CREATE INDEX IF NOT EXISTS idx_sos_responses_marker ON sos_responses(sos_marker_id);
+      CREATE INDEX IF NOT EXISTS idx_sos_responses_status ON sos_responses(status);
+    `);
+
     console.log('✅ Database initialized successfully');
     isInitializing = false;
   } catch (error) {
@@ -389,4 +485,305 @@ export async function upsertMarker(marker: Marker): Promise<void> {
   );
 
   console.log('✅ Marker upserted from cloud:', marker.id);
+}
+
+// ============================================================================
+// SOS SYSTEM FUNCTIONS
+// ============================================================================
+
+/**
+ * Create a new SOS marker
+ */
+export async function createSOSMarker(sosMarker: {
+  id: string;
+  latitude: number;
+  longitude: number;
+  createdBy: string;
+  createdAt: number;
+}): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    `INSERT INTO sos_markers (
+      id, latitude, longitude, created_by, created_at, status, synced_to_cloud
+    ) VALUES (?, ?, ?, ?, ?, 'active', 0)`,
+    [
+      sosMarker.id,
+      sosMarker.latitude,
+      sosMarker.longitude,
+      sosMarker.createdBy,
+      sosMarker.createdAt,
+    ]
+  );
+
+  console.log('✅ SOS marker created:', sosMarker.id);
+}
+
+/**
+ * Get all active SOS markers
+ */
+export async function getActiveSOSMarkers(): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    `SELECT * FROM sos_markers WHERE status = 'active' ORDER BY created_at DESC`
+  );
+
+  return rows;
+}
+
+/**
+ * Get user's active SOS request
+ */
+export async function getUserActiveSOSRequest(deviceId: string): Promise<any | null> {
+  if (!db) throw new Error('Database not initialized');
+
+  const row = await db.getFirstAsync<any>(
+    `SELECT * FROM sos_markers WHERE created_by = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+    [deviceId]
+  );
+
+  return row || null;
+}
+
+/**
+ * Complete an SOS marker
+ */
+export async function completeSOSMarker(sosId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  const completedAt = Date.now();
+  const expiresAt = completedAt + (5 * 60 * 1000); // 5 minutes from now
+
+  await db.runAsync(
+    `UPDATE sos_markers 
+     SET status = 'completed', completed_at = ?, expires_at = ?, synced_to_cloud = 0
+     WHERE id = ?`,
+    [completedAt, expiresAt, sosId]
+  );
+
+  console.log('✅ SOS marker completed:', sosId);
+}
+
+/**
+ * Delete an SOS marker (for cleanup)
+ */
+export async function deleteSOSMarker(sosId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync('DELETE FROM sos_markers WHERE id = ?', [sosId]);
+  await db.runAsync('DELETE FROM sos_responses WHERE sos_marker_id = ?', [sosId]);
+
+  console.log('✅ SOS marker deleted:', sosId);
+}
+
+/**
+ * Add SOS response
+ */
+export async function addSOSResponse(response: {
+  sosMarkerId: string;
+  responderDeviceId: string;
+  currentLatitude: number;
+  currentLongitude: number;
+  distanceMeters: number;
+  etaMinutes: number;
+}): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  const responseId = `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
+
+  await db.runAsync(
+    `INSERT INTO sos_responses (
+      id, sos_marker_id, responder_device_id, created_at, updated_at,
+      current_latitude, current_longitude, distance_meters, eta_minutes,
+      status, synced_to_cloud
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0)`,
+    [
+      responseId,
+      response.sosMarkerId,
+      response.responderDeviceId,
+      now,
+      now,
+      response.currentLatitude,
+      response.currentLongitude,
+      response.distanceMeters,
+      response.etaMinutes,
+    ]
+  );
+
+  console.log('✅ SOS response added:', response.sosMarkerId);
+}
+
+/**
+ * Get responses for an SOS marker
+ */
+export async function getSOSResponses(sosMarkerId: string): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    `SELECT * FROM sos_responses 
+     WHERE sos_marker_id = ? AND status = 'active'
+     ORDER BY created_at ASC`,
+    [sosMarkerId]
+  );
+
+  return rows;
+}
+
+/**
+ * Update responder location and ETA
+ */
+export async function updateResponderLocation(
+  sosMarkerId: string,
+  responderDeviceId: string,
+  latitude: number,
+  longitude: number,
+  distanceMeters: number,
+  etaMinutes: number
+): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    `UPDATE sos_responses 
+     SET current_latitude = ?, current_longitude = ?, 
+         distance_meters = ?, eta_minutes = ?, synced_to_cloud = 0
+     WHERE sos_marker_id = ? AND responder_device_id = ?`,
+    [latitude, longitude, distanceMeters, etaMinutes, sosMarkerId, responderDeviceId]
+  );
+}
+
+/**
+ * Cancel SOS response
+ */
+export async function cancelSOSResponse(
+  sosMarkerId: string,
+  responderDeviceId: string
+): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    `UPDATE sos_responses 
+     SET status = 'cancelled', synced_to_cloud = 0
+     WHERE sos_marker_id = ? AND responder_device_id = ?`,
+    [sosMarkerId, responderDeviceId]
+  );
+
+  console.log('✅ SOS response cancelled:', sosMarkerId);
+}
+
+/**
+ * Get user's active SOS response
+ */
+export async function getUserActiveSOSResponse(deviceId: string): Promise<any | null> {
+  if (!db) throw new Error('Database not initialized');
+
+  const row = await db.getFirstAsync<any>(
+    `SELECT * FROM sos_responses 
+     WHERE responder_device_id = ? AND status = 'active'`,
+    [deviceId]
+  );
+
+  return row || null;
+}
+
+/**
+ * Get unsynced SOS markers
+ */
+export async function getUnsyncedSOSMarkers(): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM sos_markers WHERE synced_to_cloud = 0'
+  );
+
+  return rows;
+}
+
+/**
+ * Get unsynced SOS responses
+ */
+export async function getUnsyncedSOSResponses(): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM sos_responses WHERE synced_to_cloud = 0'
+  );
+
+  return rows;
+}
+
+/**
+ * Mark SOS marker as synced
+ */
+export async function markSOSMarkerAsSynced(sosId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    'UPDATE sos_markers SET synced_to_cloud = 1 WHERE id = ?',
+    [sosId]
+  );
+}
+
+/**
+ * Mark SOS response as synced
+ */
+export async function markSOSResponseAsSynced(responseId: number): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    'UPDATE sos_responses SET synced_to_cloud = 1 WHERE id = ?',
+    [responseId]
+  );
+}
+
+/**
+ * Upsert SOS marker from cloud
+ */
+export async function upsertSOSMarker(sosMarker: any): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO sos_markers (
+      id, latitude, longitude, created_by, created_at, status,
+      completed_at, expires_at, synced_to_cloud
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    [
+      sosMarker.id,
+      sosMarker.latitude,
+      sosMarker.longitude,
+      sosMarker.created_by,
+      sosMarker.created_at,
+      sosMarker.status,
+      sosMarker.completed_at || null,
+      sosMarker.expires_at || null,
+    ]
+  );
+}
+
+/**
+ * Upsert SOS response from cloud
+ */
+export async function upsertSOSResponse(response: any): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO sos_responses (
+      id, sos_marker_id, responder_device_id, created_at, updated_at,
+      current_latitude, current_longitude, distance_meters, eta_minutes,
+      status, synced_to_cloud
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    [
+      response.id,
+      response.sos_marker_id,
+      response.responder_device_id,
+      response.created_at,
+      response.updated_at,
+      response.current_latitude,
+      response.current_longitude,
+      response.distance_meters,
+      response.eta_minutes,
+      response.status,
+    ]
+  );
 }

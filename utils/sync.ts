@@ -3,10 +3,16 @@ import NetInfo from '@react-native-community/netinfo';
 import {
   getAllMarkers,
   getUnsyncedMarkers,
+  getUnsyncedSOSMarkers,
+  getUnsyncedSOSResponses,
   markMarkerAsSynced,
+  markSOSMarkerAsSynced,
+  markSOSResponseAsSynced,
   upsertMarker,
+  upsertSOSMarker,
+  upsertSOSResponse,
 } from './database';
-import { isSupabaseConfigured, supabase, SupabaseMarker } from './supabase';
+import { isSupabaseConfigured, supabase, SupabaseMarker, SupabaseSOSMarker, SupabaseSOSResponse } from './supabase';
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let isCurrentlySyncing = false;
@@ -119,6 +125,7 @@ export function startSyncService(): void {
 
   // Subscribe to real-time updates from Supabase
   subscribeToRealtimeUpdates();
+  subscribeToSOSRealtimeUpdates();
 }
 
 /**
@@ -129,7 +136,7 @@ export function stopSyncService(): void {
     clearInterval(syncInterval);
     syncInterval = null;
   }
-  console.log('📡 Sync service stopped');
+  console.log('🛑 Sync service stopped');
 }
 
 /**
@@ -147,6 +154,18 @@ async function performSync(): Promise<void> {
 
     // 2. Pull new markers from cloud to local
     await pullCloudMarkersToLocal();
+
+    // 3. Push unsynced SOS markers to cloud
+    await pushSOSMarkersToCloud();
+
+    // 4. Push unsynced SOS responses to cloud
+    await pushSOSResponsesToCloud();
+
+    // 5. Pull SOS markers from cloud
+    await pullSOSMarkersFromCloud();
+
+    // 6. Pull SOS responses from cloud
+    await pullSOSResponsesFromCloud();
 
     console.log('✅ Sync completed successfully');
   } catch (error) {
@@ -364,4 +383,218 @@ export async function manualSync(): Promise<void> {
   }
 
   await performSync();
+}
+
+// ============================================================================
+// SOS SYNC FUNCTIONS
+// ============================================================================
+
+/**
+ * Push unsynced SOS markers to Supabase
+ */
+async function pushSOSMarkersToCloud(): Promise<void> {
+  if (!supabase) return;
+
+  const unsyncedSOS = await getUnsyncedSOSMarkers();
+
+  if (unsyncedSOS.length === 0) {
+    return;
+  }
+
+  console.log(`📤 Pushing ${unsyncedSOS.length} SOS markers to cloud...`);
+
+  for (const sos of unsyncedSOS) {
+    try {
+      // Push SOS marker to cloud (without completed_at field)
+      const supabaseSOS: SupabaseSOSMarker = {
+        id: sos.id,
+        latitude: sos.latitude,
+        longitude: sos.longitude,
+        created_by: sos.created_by,
+        created_at: sos.created_at,
+        status: sos.status,
+        expires_at: sos.expires_at || null,
+      };
+
+      const { error } = await supabase
+        .from('sos_markers')
+        .upsert(supabaseSOS, { onConflict: 'id' });
+
+      if (error) {
+        console.error('❌ Error pushing SOS marker:', sos.id, error);
+      } else {
+        await markSOSMarkerAsSynced(sos.id);
+        console.log('✅ Pushed SOS marker:', sos.id);
+      }
+    } catch (error) {
+      console.error('❌ Error pushing SOS marker:', sos.id, error);
+    }
+  }
+}
+
+/**
+ * Push unsynced SOS responses to Supabase
+ */
+async function pushSOSResponsesToCloud(): Promise<void> {
+  if (!supabase) return;
+
+  const unsyncedResponses = await getUnsyncedSOSResponses();
+
+  if (unsyncedResponses.length === 0) {
+    return;
+  }
+
+  console.log(`📤 Pushing ${unsyncedResponses.length} SOS responses to cloud...`);
+
+  for (const response of unsyncedResponses) {
+    try {
+      const supabaseResponse: Omit<SupabaseSOSResponse, 'id'> = {
+        sos_marker_id: response.sos_marker_id,
+        responder_device_id: response.responder_device_id,
+        created_at: response.created_at,
+        updated_at: response.updated_at,
+        current_latitude: response.current_latitude,
+        current_longitude: response.current_longitude,
+        distance_meters: response.distance_meters,
+        eta_minutes: response.eta_minutes,
+        status: response.status,
+      };
+
+      const { error } = await supabase
+        .from('sos_responses')
+        .upsert({ ...supabaseResponse, id: response.id }, { onConflict: 'id' });
+
+      if (error) {
+        console.error('❌ Error pushing SOS response:', response.id, error);
+      } else {
+        await markSOSResponseAsSynced(response.id);
+        console.log('✅ Pushed SOS response:', response.id);
+      }
+    } catch (error) {
+      console.error('❌ Error pushing SOS response:', response.id, error);
+    }
+  }
+}
+
+/**
+ * Pull SOS markers from cloud
+ */
+async function pullSOSMarkersFromCloud(): Promise<void> {
+  if (!supabase) return;
+
+  try {
+    // Only pull SOS markers from the last 24 hours to avoid pulling old/stale markers
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    
+    const { data, error } = await supabase
+      .from('sos_markers')
+      .select('*')
+      .eq('status', 'active')
+      .gt('created_at', twentyFourHoursAgo)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error pulling SOS markers:', error);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      return;
+    }
+
+    console.log(`📥 Pulled ${data.length} SOS markers from cloud`);
+
+    for (const cloudSOS of data) {
+      await upsertSOSMarker(cloudSOS);
+    }
+  } catch (error) {
+    console.error('❌ Error pulling SOS markers from cloud:', error);
+  }
+}
+
+/**
+ * Pull SOS responses from cloud
+ */
+async function pullSOSResponsesFromCloud(): Promise<void> {
+  if (!supabase) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('sos_responses')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error pulling SOS responses:', error);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      return;
+    }
+
+    console.log(`📥 Pulled ${data.length} SOS responses from cloud`);
+
+    for (const cloudResponse of data) {
+      await upsertSOSResponse(cloudResponse);
+    }
+  } catch (error) {
+    console.error('❌ Error pulling SOS responses from cloud:', error);
+  }
+}
+
+/**
+ * Subscribe to real-time SOS updates
+ */
+function subscribeToSOSRealtimeUpdates(): void {
+  if (!supabase) return;
+
+  console.log('🔔 Subscribing to SOS real-time updates...');
+
+  // Subscribe to SOS markers
+  supabase
+    .channel('sos_markers_changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sos_markers',
+      },
+      (payload) => {
+        console.log('🔔 SOS marker update received:', payload.eventType);
+        
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const cloudSOS = payload.new as SupabaseSOSMarker;
+          upsertSOSMarker(cloudSOS).then(() => {
+            console.log('✅ Real-time SOS marker synced:', cloudSOS.id);
+          });
+        }
+      }
+    )
+    .subscribe();
+
+  // Subscribe to SOS responses
+  supabase
+    .channel('sos_responses_changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sos_responses',
+      },
+      (payload) => {
+        console.log('🔔 SOS response update received:', payload.eventType);
+        
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const cloudResponse = payload.new as SupabaseSOSResponse;
+          upsertSOSResponse(cloudResponse).then(() => {
+            console.log('✅ Real-time SOS response synced:', cloudResponse.id);
+          });
+        }
+      }
+    )
+    .subscribe();
 }

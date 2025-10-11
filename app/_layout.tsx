@@ -4,6 +4,7 @@ import 'react-native-reanimated';
 
 import { DatabaseProvider } from '@/contexts/DatabaseContext';
 import { LocationProvider } from '@/contexts/LocationContext';
+import { SOSProvider } from '@/contexts/SOSContext';
 import { TrailProvider } from '@/contexts/TrailContext';
 
 export const unstable_settings = {
@@ -11,17 +12,18 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
-
   return (
     <DatabaseProvider>
       <LocationProvider>
-        <TrailProvider>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-          </Stack>
-          <StatusBar style="auto" />
-        </TrailProvider>
+        <SOSProvider>
+          <TrailProvider>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+            </Stack>
+            <StatusBar style="auto" />
+          </TrailProvider>
+        </SOSProvider>
       </LocationProvider>
     </DatabaseProvider>
   );

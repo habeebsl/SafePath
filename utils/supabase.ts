@@ -43,3 +43,26 @@ export type SupabaseVote = {
   vote_type: 'agree' | 'disagree';
   timestamp: number;
 };
+
+export type SupabaseSOSMarker = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  created_by: string;
+  created_at: number;
+  status: 'active' | 'completed';
+  expires_at: number | null;
+};
+
+export type SupabaseSOSResponse = {
+  id: string;
+  sos_marker_id: string;
+  responder_device_id: string;
+  created_at: number;
+  updated_at: number;
+  current_latitude: number | null;
+  current_longitude: number | null;
+  distance_meters: number | null;
+  eta_minutes: number | null;
+  status: 'active' | 'cancelled' | 'arrived';
+};

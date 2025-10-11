@@ -1,22 +1,28 @@
 import { Icon } from '@/components/Icon';
+import { AddMarkerModal } from '@/components/markers/AddMarkerModal';
+import { MarkerDetailsModal } from '@/components/markers/MarkerDetailsModal';
+import { SOSButton } from '@/components/sos/SOSButton';
+import { SOSDetailsModal } from '@/components/sos/SOSDetailsModal';
+import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
-import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { generateMarkerHTML } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
+import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
 import { Marker, MarkerType } from '@/types/marker';
+import { SOSMarker } from '@/types/sos';
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { AddMarkerModal } from './markers/AddMarkerModal';
-import { MarkerDetailsModal } from './markers/MarkerDetailsModal';
 
 export default function MapComponent() {
   const { location, isTracking } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
+  const { activeSOSMarkers } = useSOS();
   const { activeTrail } = useTrail();
   const webViewRef = useRef<WebView>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -32,6 +38,10 @@ export default function MapComponent() {
   const [showMarkerDetails, setShowMarkerDetails] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<Marker | null>(null);
+  
+  // SOS modal state
+  const [showSOSDetails, setShowSOSDetails] = useState(false);
+  const [selectedSOSMarker, setSelectedSOSMarker] = useState<SOSMarker | null>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
@@ -46,6 +56,20 @@ export default function MapComponent() {
       setInitialLocationSet(true);
     }
   }, [location]);
+
+  // Center map on user location when we first get GPS fix
+  useEffect(() => {
+    if (initialLocationSet && mapReady && webViewRef.current && location) {
+      const js = `
+        if (window.map && window.userMarker && window.recenterMap) {
+          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
+          window.userMarker.setLatLng(newLatLng);
+          window.recenterMap();
+        }
+      `;
+      webViewRef.current.injectJavaScript(js);
+    }
+  }, [initialLocationSet, mapReady]);
 
   // Monitor network connectivity status
   useEffect(() => {
@@ -400,13 +424,14 @@ export default function MapComponent() {
           }));
         });
 
-        // Store markers globally for click handling
+        // Initialize empty SafePath markers object
         window.safePathMarkers = {};
+        window.sosMarkers = {};
       </script>
     </body>
     </html>
-  `;
-  }, [mapTilerKey, initialLocationSet]); // Recreate once when initial location is set
+    `;
+  }, [mapTilerKey]);
 
   const handleMessage = (event: any) => {
     try {
@@ -419,11 +444,18 @@ export default function MapComponent() {
         setSelectedLocation({ lat: data.lat, lng: data.lng });
         setShowAddMarker(true);
       } else if (data.type === 'markerClick') {
-        // Marker clicked - show details modal
+        // Regular marker clicked
         const marker = markers.find(m => m.id === data.markerId);
         if (marker) {
           setSelectedMarker(marker);
           setShowMarkerDetails(true);
+        }
+      } else if (data.type === 'sosMarkerClick') {
+        // SOS marker clicked
+        const sosMarker = activeSOSMarkers.find(m => m.id === data.sosMarkerId);
+        if (sosMarker) {
+          setSelectedSOSMarker(sosMarker);
+          setShowSOSDetails(true);
         }
       }
     } catch (e) {
@@ -490,12 +522,14 @@ export default function MapComponent() {
   const addMarkerToMap = (marker: Marker) => {
     if (!webViewRef.current || !mapReady) return;
 
-    const js = `
-      (function() {
+    const markerHTML = generateMarkerHTML(marker.type, marker.confidenceScore);
+    const markerHTMLEscaped = JSON.stringify(markerHTML);
+
+    const js = 
+      `(function() {
         if (!window.map) return;
         
-        // Import marker HTML generator (inline for now)
-        var markerHTML = ${JSON.stringify(generateMarkerHTML(marker))};
+        var markerHTML = ` + markerHTMLEscaped + `;
         
         var icon = L.divIcon({
           className: 'custom-marker',
@@ -505,21 +539,20 @@ export default function MapComponent() {
           popupAnchor: [0, -50]
         });
         
-        var marker = L.marker([${marker.latitude}, ${marker.longitude}], {
+        var marker = L.marker([` + marker.latitude + `, ` + marker.longitude + `], {
           icon: icon,
-          markerId: '${marker.id}'
+          markerId: '` + marker.id + `'
         }).addTo(window.map);
         
         marker.on('click', function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'markerClick',
-            markerId: '${marker.id}'
+            markerId: '` + marker.id + `'
           }));
         });
         
-        window.safePathMarkers['${marker.id}'] = marker;
-      })();
-    `;
+        window.safePathMarkers['` + marker.id + `'] = marker;
+      })();`;
     
     webViewRef.current.injectJavaScript(js);
   };
@@ -537,6 +570,7 @@ export default function MapComponent() {
           window.map.removeLayer(marker);
         });
         
+                
         // Clear the markers object
         window.safePathMarkers = {};
       })();
@@ -545,17 +579,80 @@ export default function MapComponent() {
     webViewRef.current.injectJavaScript(js);
   };
 
+  // Add SOS marker to Leaflet map
+  const addSOSMarkerToMap = (sosMarker: SOSMarker) => {
+    if (!webViewRef.current || !mapReady) return;
+
+    const markerHTML = generateMarkerHTML('sos' as MarkerType, 100, sosMarker.status);
+    const markerHTMLEscaped = JSON.stringify(markerHTML);
+
+    const js = `
+      (function() {
+        if (!window.map) return;
+        
+        // Initialize SOS markers object if needed
+        if (!window.sosMarkers) {
+          window.sosMarkers = {};
+        }
+        
+        var markerHTML = ` + markerHTMLEscaped + `;
+        
+        var icon = L.divIcon({
+          className: 'custom-marker sos-marker',
+          html: markerHTML,
+          iconSize: [48, 58],
+          iconAnchor: [24, 58],
+          popupAnchor: [0, -58]
+        });
+        
+        var marker = L.marker([` + sosMarker.latitude + `, ` + sosMarker.longitude + `], {
+          icon: icon,
+          markerId: '` + sosMarker.id + `',
+          markerType: 'sos'
+        }).addTo(window.map);
+        
+        marker.on('click', function() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'sosMarkerClick',
+            sosMarkerId: '` + sosMarker.id + `'
+          }));
+        });
+        
+        window.sosMarkers['` + sosMarker.id + `'] = marker;
+      })();
+    `;
+    
+    webViewRef.current.injectJavaScript(js);
+  };
+
+  // Clear all SOS markers from map
+  const clearSOSMarkers = () => {
+    if (!webViewRef.current || !mapReady) return;
+
+    const js = `
+      (function() {
+        if (!window.map || !window.sosMarkers) return;
+        
+        // Remove all SOS markers from map
+        Object.values(window.sosMarkers).forEach(function(marker) {
+          window.map.removeLayer(marker);
+        });
+        
+        // Clear the SOS markers object
+        window.sosMarkers = {};
+      })();
+    `;
+    
+    webViewRef.current.injectJavaScript(js);
+  };
+
   // Refresh all markers on map
   const refreshMapMarkers = () => {
-    if (!mapReady) return;
-    
-    console.log('🗺️ Refreshing map markers...');
+    console.log('Refreshing markers on map: ' + markers.length);
     clearAllMarkers();
-    
-    // Re-add all markers
     setTimeout(() => {
       markers.forEach(marker => addMarkerToMap(marker));
-      console.log(`✅ Refreshed ${markers.length} markers on map`);
+      console.log('Added markers on map: ' + markers.length);
     }, 100); // Small delay to ensure clear completes
   };
 
@@ -566,6 +663,13 @@ export default function MapComponent() {
     }
   }, [mapReady]);
 
+  // Load SOS markers when map is ready
+  useEffect(() => {
+    if (mapReady && activeSOSMarkers.length > 0) {
+      activeSOSMarkers.forEach(sosMarker => addSOSMarkerToMap(sosMarker));
+    }
+  }, [mapReady, activeSOSMarkers.length]);
+
   // Update markers on map when markers change (e.g., after sync)
   useEffect(() => {
     if (mapReady && !refreshing) {
@@ -574,57 +678,21 @@ export default function MapComponent() {
     }
   }, [markers.length, mapReady]);
 
-  // Helper function to generate marker HTML (inline version)
-  const generateMarkerHTML = (marker: Marker): string => {
-    const config = MARKER_CONFIG[marker.type];
-    const { color, size, iconSvg } = config;
-    
-    // Adjust opacity based on confidence
-    let bgColor = color;
-    if (marker.confidenceScore < 80) bgColor = `${color}CC`;
-    if (marker.confidenceScore < 50) bgColor = `${color}99`;
-    if (marker.confidenceScore < 20) bgColor = `${color}66`;
-    
-    return `
-      <div style="
-        width: ${size}px;
-        height: ${size}px;
-        background: ${bgColor};
-        border: 3px solid white;
-        border-radius: 50% 50% 50% 0;
-        transform: rotate(-45deg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.4);
-      ">
-        <div style="
-          transform: rotate(45deg);
-          width: 24px;
-          height: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        ">
-          ${iconSvg}
-        </div>
-      </div>
-    `;
-  };
+  // Update SOS markers on map when they change
+  useEffect(() => {
+    if (mapReady) {
+      console.log('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
+      // Clear existing SOS markers
+      clearSOSMarkers();
+      // Re-add all SOS markers
+      activeSOSMarkers.forEach(sosMarker => {
+        console.log('➕ Adding SOS marker to map:', sosMarker.id);
+        addSOSMarkerToMap(sosMarker);
+      });
+    }
+  }, [activeSOSMarkers, mapReady]);
 
-  const getMarkerConfig = (type: MarkerType) => {
-    const configs = {
-      safe: { color: '#22C55E', size: 40 },
-      danger: { color: '#EF4444', size: 40 },
-      uncertain: { color: '#F59E0B', size: 38 },
-      medical: { color: '#3B82F6', size: 42 },
-      food: { color: '#92400E', size: 38 },
-      shelter: { color: '#7C3AED', size: 38 },
-      checkpoint: { color: '#64748B', size: 38 },
-      combat: { color: '#DC2626', size: 42 },
-    };
-    return configs[type] || configs.danger;
-  };
+
 
   // Handle manual sync
   const handleManualSync = async () => {
@@ -753,6 +821,22 @@ export default function MapComponent() {
           setSelectedMarker(null);
         }}
         onVote={handleVote}
+      />
+
+      {/* SOS Notification Banner */}
+      <SOSNotificationBanner />
+
+      {/* SOS Button */}
+      <SOSButton />
+
+      {/* SOS Details Modal */}
+      <SOSDetailsModal
+        visible={showSOSDetails}
+        sosMarker={selectedSOSMarker}
+        onClose={() => {
+          setShowSOSDetails(false);
+          setSelectedSOSMarker(null);
+        }}
       />
 
       {/* Trail Bottom Bar */}

@@ -1,4 +1,4 @@
-import { MarkerType, MarkerIconConfig } from '@/types/marker';
+import { MarkerIconConfig, MarkerType } from '@/types/marker';
 
 // TODO: Replace these placeholder SVGs with actual icons from your source
 // Format: SVG as a string (will be embedded in HTML)
@@ -55,6 +55,12 @@ const ICON_SVG = {
     <path d="M762-96 645-212l-88 88-28-28q-23-23-23-57t23-57l169-169q23-23 57-23t57 23l28 28-88 88 116 117q12 12 12 28t-12 28l-50 50q-12 12-28 12t-28-12Zm118-628L426-270l5 4q23 23 23 57t-23 57l-28 28-88-88L198-96q-12 12-28 12t-28-12l-50-50q-12-12-12-28t12-28l116-117-88-88 28-28q23-23 57-23t57 23l4 5 454-454h160v160ZM278-526 80-724v-160h160l198 198-160 160Z"/>
     </svg>
   `,
+  
+  sos: `
+    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="white">
+    <path d="M798-120q-125 0-247-54.5T329-329Q229-429 174.5-551T120-798q0-18 12-30t30-12h162q14 0 25 9.5t13 22.5l26 140q2 16-1 27t-11 19l-97 98q20 37 47.5 71.5T387-386q31 31 65 57.5t72 48.5l94-94q9-9 23.5-13.5T670-390l138 28q14 4 23 14.5t9 23.5v162q0 18-12 30t-30 12Z"/>
+    </svg>
+  `,
 };
 
 // SVG path data extracted for React Native rendering
@@ -67,6 +73,7 @@ export const ICON_PATHS: Record<MarkerType, string> = {
   shelter: 'M80-80v-186l350-472-70-94 64-48 56 75 56-75 64 48-70 94 350 472v186H80Zm249-80h302L480-371 329-160Z',
   checkpoint: 'M200-200v-400q0-66 47-113t113-47h80v240h-80v80h80v240H200Zm320 0v-240h80v-80h-80v-240h80q66 0 113 47t47 113v400H520ZM80-280v-400h80v400H80Zm720 0v-400h80v400h-80Z',
   combat: 'M762-96 645-212l-88 88-28-28q-23-23-23-57t23-57l169-169q23-23 57-23t57 23l28 28-88 88 116 117q12 12 12 28t-12 28l-50 50q-12 12-28 12t-28-12Zm118-628L426-270l5 4q23 23 23 57t-23 57l-28 28-88-88L198-96q-12 12-28 12t-28-12l-50-50q-12-12-12-28t12-28l116-117-88-88 28-28q23-23 57-23t57 23l4 5 454-454h160v160ZM278-526 80-724v-160h160l198 198-160 160Z',
+  sos: 'M798-120q-125 0-247-54.5T329-329Q229-429 174.5-551T120-798q0-18 12-30t30-12h162q14 0 25 9.5t13 22.5l26 140q2 16-1 27t-11 19l-97 98q20 37 47.5 71.5T387-386q31 31 65 57.5t72 48.5l94-94q9-9 23.5-13.5T670-390l138 28q14 4 23 14.5t9 23.5v162q0 18-12 30t-30 12Z',
 };
 
 // Marker configuration with colors and labels
@@ -127,6 +134,13 @@ export const MARKER_CONFIG: Record<MarkerType, MarkerIconConfig> = {
     size: 42,
     label: 'Active Combat',
   },
+  sos: {
+    type: 'sos',
+    color: '#DC2626',      // Red
+    iconSvg: ICON_SVG.sos,
+    size: 44,
+    label: 'SOS Emergency',
+  },
 };
 
 // Helper to get marker configuration
@@ -135,15 +149,26 @@ export function getMarkerConfig(type: MarkerType): MarkerIconConfig {
 }
 
 // Helper to generate Leaflet marker HTML with confidence-based color
-export function generateMarkerHTML(type: MarkerType, confidence: number): string {
+// Special handling for SOS markers (pentagon shape)
+export function generateMarkerHTML(type: MarkerType, confidence: number, status?: 'active' | 'completed'): string {
   const config = getMarkerConfig(type);
   const { color, iconSvg, size } = config;
   
-  // Adjust color opacity based on confidence
-  let bgColor = color;
-  if (confidence < 80) bgColor = `${color}CC`; // 80% opacity
-  if (confidence < 50) bgColor = `${color}99`; // 60% opacity
-  if (confidence < 20) bgColor = `${color}66`; // 40% opacity
+  // SOS markers use different color logic (green when completed)
+  const sosColor = (type === 'sos' && status === 'completed') ? '#22C55E' : color;
+  
+  // Adjust color opacity based on confidence (not applicable for SOS markers)
+  let bgColor = sosColor;
+  if (type !== 'sos') {
+    if (confidence < 80) bgColor = `${color}CC`; // 80% opacity
+    if (confidence < 50) bgColor = `${color}99`; // 60% opacity
+    if (confidence < 20) bgColor = `${color}66`; // 40% opacity
+  }
+  
+  // Use checkmark icon for completed SOS markers
+  const displayIcon = (type === 'sos' && status === 'completed') 
+    ? '<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="white"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>'
+    : iconSvg;
   
   return `
     <div style="
@@ -160,7 +185,7 @@ export function generateMarkerHTML(type: MarkerType, confidence: number): string
       position: relative;
     ">
       <div style="transform: rotate(45deg); width: 24px; height: 24px;">
-        ${iconSvg}
+        ${displayIcon}
       </div>
     </div>
   `;
