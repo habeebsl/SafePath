@@ -4,7 +4,7 @@
 
 import { Icon } from '@/components/Icon';
 import { Trail } from '@/types/trail';
-import { Country, getRegionDisplayText } from '@/utils/region-helpers';
+import { getLocationDisplayText } from '@/utils/region-helpers';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -17,7 +17,7 @@ interface MapOverlaysProps {
   refreshing: boolean;
   onSync: () => void;
   activeTrail?: Trail | null;
-  currentCountry: Country | null;
+  currentCountry: string | null;
   isLocating: boolean;
 }
 
@@ -32,7 +32,7 @@ export function MapOverlays({
   currentCountry,
   isLocating,
 }: MapOverlaysProps) {
-  const regionText = getRegionDisplayText(currentCountry, isLocating);
+  const regionText = getLocationDisplayText(currentCountry, isLocating);
   
   return (
     <>

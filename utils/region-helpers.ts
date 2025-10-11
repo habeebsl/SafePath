@@ -2,82 +2,53 @@
  * Region and country detection utilities
  */
 
-import region from '@/config/region.json';
-import { getDistance } from 'geolib';
-
 export interface Country {
   name: string;
   displayName: string;
-  priority: string;
-  center: {
-    latitude: number;
-    longitude: number;
-  };
 }
 
 /**
- * Determine which country a coordinate belongs to
- * Uses distance from country centers - simple but effective for our use case
+ * Get country name from coordinates using reverse geocoding
+ * Uses Nominatim (OpenStreetMap) for free reverse geocoding
  */
-export function getCountryFromCoordinates(
+export async function getCountryFromCoordinates(
   latitude: number,
   longitude: number
-): Country | null {
+): Promise<string | null> {
   if (!latitude || !longitude) return null;
 
-  let closestCountry: Country | null = null;
-  let closestDistance = Infinity;
-
-  // Find the country with the closest center point
-  for (const country of region.countries) {
-    const distance = getDistance(
-      { latitude, longitude },
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=3&addressdetails=1`,
       {
-        latitude: country.center.latitude,
-        longitude: country.center.longitude,
+        headers: {
+          'User-Agent': 'SafePath App'
+        }
       }
     );
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestCountry = country as Country;
-    }
+    
+    const data = await response.json();
+    return data.address?.country || null;
+  } catch (error) {
+    console.error('Error getting country:', error);
+    return null;
   }
-
-  // Only return if within reasonable distance (1000km)
-  // This prevents assigning a country if user is far outside our region
-  if (closestDistance < 1000000) {
-    return closestCountry;
-  }
-
-  return null;
 }
 
 /**
- * Check if coordinates are within our supported region
+ * Get display text for location badge
  */
-export function isInSupportedRegion(
-  latitude: number,
-  longitude: number
-): boolean {
-  const country = getCountryFromCoordinates(latitude, longitude);
-  return country !== null;
-}
-
-/**
- * Get region display text for UI
- */
-export function getRegionDisplayText(
-  country: Country | null,
+export function getLocationDisplayText(
+  country: string | null,
   isLocating: boolean
 ): string {
   if (isLocating) {
-    return `${region.displayName} • Locating...`;
+    return 'Locating...';
   }
   
   if (country) {
-    return `${region.displayName} • ${country.displayName}`;
+    return country;
   }
   
-  return region.displayName;
+  return 'Unknown Location';
 }

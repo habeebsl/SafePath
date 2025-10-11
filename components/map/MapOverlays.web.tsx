@@ -5,7 +5,7 @@
 
 import { Icon } from '@/components/Icon';
 import { Trail } from '@/types/trail';
-import { Country, getRegionDisplayText } from '@/utils/region-helpers';
+import { getLocationDisplayText } from '@/utils/region-helpers';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -18,7 +18,7 @@ interface MapOverlaysProps {
   refreshing: boolean;
   onSync: () => void;
   activeTrail?: Trail | null;
-  currentCountry: Country | null;
+  currentCountry: string | null;
   isLocating: boolean;
 }
 
@@ -34,10 +34,12 @@ export function MapOverlays({
   isLocating,
 }: MapOverlaysProps) {
   console.log('🌐 MapOverlays.web.tsx rendering - location:', !!location, 'activeTrail:', !!activeTrail);
+  console.log('🏷️ Region badge - currentCountry:', currentCountry, 'isLocating:', isLocating);
   
   const screenWidth = Dimensions.get('window').width;
   const isSmallScreen = screenWidth < 600;
-  const regionText = getRegionDisplayText(currentCountry, isLocating);
+  const regionText = getLocationDisplayText(currentCountry, isLocating);
+  console.log('📝 Region text:', regionText);
   
   return (
     <>

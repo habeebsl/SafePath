@@ -1,5 +1,5 @@
 import { useLocationTracking } from '@/hooks/useLocationTracking';
-import { Country, getCountryFromCoordinates } from '@/utils/region-helpers';
+import { getCountryFromCoordinates } from '@/utils/region-helpers';
 import * as Location from 'expo-location';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 
@@ -7,7 +7,7 @@ interface LocationContextType {
   location: Location.LocationObject | null;
   error: string | null;
   isTracking: boolean;
-  currentCountry: Country | null;
+  currentCountry: string | null;
   isLocating: boolean;
   startTracking: () => Promise<void>;
   stopTracking: () => void;
@@ -26,7 +26,7 @@ export function LocationProvider({ children }: LocationProviderProps) {
     timeInterval: 5000,
   });
 
-  const [currentCountry, setCurrentCountry] = useState<Country | null>(null);
+  const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(true);
 
   // Auto-start tracking when app loads
@@ -38,9 +38,15 @@ export function LocationProvider({ children }: LocationProviderProps) {
   useEffect(() => {
     if (locationData.location) {
       const { latitude, longitude } = locationData.location.coords;
-      const country = getCountryFromCoordinates(latitude, longitude);
-      setCurrentCountry(country);
-      setIsLocating(false);
+      console.log('📍 Location detected:', latitude, longitude);
+      
+      getCountryFromCoordinates(latitude, longitude).then(country => {
+        console.log('🌍 Country detected:', country || 'Unknown');
+        setCurrentCountry(country);
+        setIsLocating(false);
+      });
+    } else {
+      console.log('⏳ Waiting for location...');
     }
   }, [locationData.location]);
 
