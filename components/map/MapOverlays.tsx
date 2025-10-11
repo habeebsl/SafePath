@@ -3,8 +3,8 @@
  */
 
 import { Icon } from '@/components/Icon';
-import region from '@/config/region.json';
 import { Trail } from '@/types/trail';
+import { Country, getRegionDisplayText } from '@/utils/region-helpers';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -17,6 +17,8 @@ interface MapOverlaysProps {
   refreshing: boolean;
   onSync: () => void;
   activeTrail?: Trail | null;
+  currentCountry: Country | null;
+  isLocating: boolean;
 }
 
 export function MapOverlays({
@@ -27,13 +29,17 @@ export function MapOverlays({
   refreshing,
   onSync,
   activeTrail,
+  currentCountry,
+  isLocating,
 }: MapOverlaysProps) {
+  const regionText = getRegionDisplayText(currentCountry, isLocating);
+  
   return (
     <>
       {/* Region badge */}
       <View style={styles.regionBadge}>
         <Icon name="map-marker-alt" size={12} color="#fff" style={styles.badgeIcon} />
-        <Text style={styles.regionText}>{region.displayName}</Text>
+        <Text style={styles.regionText}>{regionText}</Text>
       </View>
 
       {/* Tracking status */}

@@ -58,6 +58,15 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "mapTilerKey": "kpVYtm0rFozT5OX3ceJZ",
+      "supabaseUrl": "https://vezjezflqjeptcgentvs.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlemplemZscWplcHRjZ2VudHZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5NjM0MzcsImV4cCI6MjA3NTUzOTQzN30.sU4zM9SaQeYOj_kasN7anzCkbb156zWWEiksuaD86Es",
+      "router": {},
+      "eas": {
+        "projectId": "bae45d3b-686c-4caa-8b14-a923dc42fa81"
+      }
     }
   }
 }

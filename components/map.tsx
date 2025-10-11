@@ -21,7 +21,7 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function MapComponent() {
-  const { location, isTracking } = useLocation();
+  const { location, isTracking, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
   const { activeSOSMarkers } = useSOS();
   const { activeTrail } = useTrail();
@@ -665,6 +665,9 @@ export default function MapComponent() {
         isOnline={isOnline}
         refreshing={refreshing}
         onSync={onManualSync}
+        activeTrail={activeTrail}
+        currentCountry={currentCountry}
+        isLocating={isLocating}
       />
 
       {/* All Modals (markers and SOS) */}

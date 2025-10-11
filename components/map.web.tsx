@@ -57,7 +57,7 @@ function MapEventHandler({ onContextMenu }: { onContextMenu: (e: any) => void })
 export default function MapComponent() {
   console.log('🗺️ MapComponent rendering (web version)...');
   
-  const { location, isTracking } = useLocation();
+  const { location, isTracking, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
   const { activeSOSMarkers } = useSOS();
   const { activeTrail } = useTrail();
@@ -539,6 +539,8 @@ export default function MapComponent() {
         refreshing={refreshing}
         onSync={onManualSync}
         activeTrail={activeTrail}
+        currentCountry={currentCountry}
+        isLocating={isLocating}
       />
 
       {/* All Modals (markers and SOS) */}
