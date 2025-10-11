@@ -555,14 +555,15 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
   const completedAt = Date.now();
   const expiresAt = completedAt + (5 * 60 * 1000); // 5 minutes from now
 
-  await db.runAsync(
+  const result = await db.runAsync(
     `UPDATE sos_markers 
      SET status = 'completed', completed_at = ?, expires_at = ?, synced_to_cloud = 0
      WHERE id = ?`,
     [completedAt, expiresAt, sosId]
   );
 
-  console.log('✅ SOS marker completed:', sosId);
+  console.log('✅ SOS marker completed:', sosId, '- rows affected:', result.changes);
+  console.log('🔄 Marked as unsynced, will push to cloud on next sync');
 }
 
 /**
@@ -575,6 +576,43 @@ export async function deleteSOSMarker(sosId: string): Promise<void> {
   await db.runAsync('DELETE FROM sos_responses WHERE sos_marker_id = ?', [sosId]);
 
   console.log('✅ SOS marker deleted:', sosId);
+}
+
+/**
+ * Delete all completed SOS markers from local database
+ */
+export async function deleteCompletedSOSMarkers(): Promise<number> {
+  if (!db) throw new Error('Database not initialized');
+
+  const result = await db.runAsync(
+    `DELETE FROM sos_markers WHERE status = 'completed'`
+  );
+
+  return result.changes || 0;
+}
+
+/**
+ * Get ALL SOS markers (including completed) for debugging
+ */
+export async function getAllSOSMarkersDebug(): Promise<any[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    `SELECT id, status FROM sos_markers ORDER BY created_at DESC`
+  );
+
+  return rows;
+}
+
+/**
+ * Delete ALL SOS markers from local database (for cleanup/reset)
+ */
+export async function deleteAllSOSMarkers(): Promise<number> {
+  if (!db) throw new Error('Database not initialized');
+
+  const result = await db.runAsync('DELETE FROM sos_markers');
+  
+  return result.changes || 0;
 }
 
 /**

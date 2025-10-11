@@ -6,26 +6,26 @@
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import {
-  SOS_ARRIVAL_THRESHOLD,
-  SOS_COOLDOWN_MINUTES,
-  SOS_MAX_RESPONDERS,
-  SOS_PROXIMITY_RADIUS,
-  SOSMarker,
-  SOSNotification,
-  SOSResponse
+    SOS_ARRIVAL_THRESHOLD,
+    SOS_COOLDOWN_MINUTES,
+    SOS_MAX_RESPONDERS,
+    SOS_PROXIMITY_RADIUS,
+    SOSMarker,
+    SOSNotification,
+    SOSResponse
 } from '@/types/sos';
 import {
-  addSOSResponse,
-  cancelSOSResponse as dbCancelSOSResponse,
-  completeSOSMarker as dbCompleteSOSMarker,
-  createSOSMarker as dbCreateSOSMarker,
-  deleteSOSMarker,
-  getActiveSOSMarkers,
-  getDeviceId,
-  getSOSResponses,
-  getUserActiveSOSRequest,
-  getUserActiveSOSResponse,
-  updateResponderLocation,
+    addSOSResponse,
+    cancelSOSResponse as dbCancelSOSResponse,
+    completeSOSMarker as dbCompleteSOSMarker,
+    createSOSMarker as dbCreateSOSMarker,
+    deleteSOSMarker,
+    getActiveSOSMarkers,
+    getDeviceId,
+    getSOSResponses,
+    getUserActiveSOSRequest,
+    getUserActiveSOSResponse,
+    updateResponderLocation,
 } from '@/utils/database';
 import { getDistance } from 'geolib';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
@@ -42,6 +42,7 @@ interface SOSContextType {
   respondToSOS: (sosId: string) => Promise<void>;
   cancelSOSResponse: (sosId: string) => Promise<void>;
   getSOSResponsesForMarker: (sosId: string) => Promise<SOSResponse[]>;
+  dismissSOSNotification: (sosId: string) => void;
   
   refreshSOS: () => Promise<void>;
   isCreatingSOS: boolean;
@@ -60,6 +61,8 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
   const [nearbySOSNotifications, setNearbySOSNotifications] = useState<SOSNotification[]>([]);
   const [isCreatingSOS, setIsCreatingSOS] = useState(false);
   const [lastSOSCreatedAt, setLastSOSCreatedAt] = useState<number>(0);
+  const [notifiedSOSIds, setNotifiedSOSIds] = useState<Set<string>>(new Set()); // Track which SOS we've already notified
+  const [dismissedSOSIds, setDismissedSOSIds] = useState<Set<string>>(new Set()); // Track which SOS user dismissed
 
   // Initialize device ID when database is ready
   useEffect(() => {
@@ -68,14 +71,43 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     }
   }, [dbReady, deviceId]);
 
+    // One-time cleanup on mount: remove any completed markers from local DB
+  useEffect(() => {
+    if (!dbReady) return;
+    
+    const cleanupMarkers = async () => {
+      try {
+        const { deleteCompletedSOSMarkers } = await import('@/utils/database');
+        const completedCount = await deleteCompletedSOSMarkers();
+        
+        if (completedCount > 0) {
+          console.log('🧹 Cleaned up', completedCount, 'completed SOS markers from local DB');
+        }
+      } catch (error) {
+        console.error('Error cleaning up markers:', error);
+      }
+    };
+    
+    cleanupMarkers();
+  }, [dbReady]);
+
   // Load SOS data on mount and refresh periodically
   useEffect(() => {
     if (!dbReady || !deviceId) return;
     
     const doRefresh = async () => {
       try {
+        // Debug: Check ALL markers in local DB
+        const { getAllSOSMarkersDebug } = await import('@/utils/database');
+        const allMarkers = await getAllSOSMarkersDebug();
+        if (allMarkers.length > 0) {
+          console.log('🔍 ALL SOS in local DB:', allMarkers.length,
+            allMarkers.map((m: any) => `${m.id.substring(0, 8)}:${m.status}`).join(', '));
+        }
+        
         const markers = await getActiveSOSMarkers();
-        console.log('🔄 Refreshing SOS - found markers:', markers.length);
+        console.log('🔄 Refreshing SOS - found active markers:', markers.length, 
+          markers.map(m => `${m.id.substring(0, 8)}:${m.status}`).join(', '));
         setActiveSOSMarkers(markers.map(m => ({
           id: m.id,
           latitude: m.latitude,
@@ -125,7 +157,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     
     const interval = setInterval(() => {
       doRefresh();
-    }, 10000); // Refresh every 10 seconds
+    }, 3000); // Refresh every 3 seconds for faster real-time updates
     
     return () => clearInterval(interval);
   }, [dbReady, deviceId]);
@@ -193,33 +225,74 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!location || !deviceId) return;
 
-    const nearby: SOSNotification[] = [];
+    const processNearby = async () => {
+      const nearby: SOSNotification[] = [];
+      let hasNotifiedChanges = false;
+      let hasDismissedChanges = false;
+      const newNotifiedIds = new Set(notifiedSOSIds);
+      const newDismissedIds = new Set(dismissedSOSIds);
 
-    for (const sosMarker of activeSOSMarkers) {
-      // Skip if it's my own SOS request
-      if (sosMarker.createdBy === deviceId) continue;
+      for (const sosMarker of activeSOSMarkers) {
+        // Skip if it's my own SOS request
+        if (sosMarker.createdBy === deviceId) continue;
 
-      // Skip if I'm already responding
-      if (myActiveSOSResponse && myActiveSOSResponse.sosMarkerId === sosMarker.id) continue;
+        // Skip if I'm already responding
+        if (myActiveSOSResponse && myActiveSOSResponse.sosMarkerId === sosMarker.id) continue;
 
-      const distance = getDistance(
-        { latitude: location.coords.latitude, longitude: location.coords.longitude },
-        { latitude: sosMarker.latitude, longitude: sosMarker.longitude }
-      );
+        // Skip if user dismissed this notification
+        if (dismissedSOSIds.has(sosMarker.id)) continue;
 
-      if (distance <= SOS_PROXIMITY_RADIUS && sosMarker.status === 'active') {
-        // Get response count (cached in state for now)
-        getSOSResponses(sosMarker.id).then(responses => {
+        const distance = getDistance(
+          { latitude: location.coords.latitude, longitude: location.coords.longitude },
+          { latitude: sosMarker.latitude, longitude: sosMarker.longitude }
+        );
+
+        if (distance <= SOS_PROXIMITY_RADIUS && sosMarker.status === 'active') {
+          const responses = await getSOSResponses(sosMarker.id);
+          
+          // Only log if we haven't notified about this SOS before
+          if (!notifiedSOSIds.has(sosMarker.id)) {
+            console.log('🚨 New nearby SOS detected:', sosMarker.id.substring(0, 12), `${Math.round(distance)}m away`);
+            newNotifiedIds.add(sosMarker.id);
+            hasNotifiedChanges = true;
+          }
+          
           nearby.push({
             sosMarker,
             distance,
             respondersCount: responses.length
           });
-        });
+        }
       }
-    }
 
-    setNearbySOSNotifications(nearby);
+      // Clean up notified/dismissed IDs for SOS that are no longer active
+      const activeIds = new Set(activeSOSMarkers.map(m => m.id));
+      for (const id of notifiedSOSIds) {
+        if (!activeIds.has(id)) {
+          newNotifiedIds.delete(id);
+          hasNotifiedChanges = true;
+          console.log('🧹 Clearing notification history for inactive SOS:', id.substring(0, 12));
+        }
+      }
+      for (const id of dismissedSOSIds) {
+        if (!activeIds.has(id)) {
+          newDismissedIds.delete(id);
+          hasDismissedChanges = true;
+          console.log('🧹 Clearing dismissed history for inactive SOS:', id.substring(0, 12));
+        }
+      }
+
+      // Only update state if there are actual changes
+      if (hasNotifiedChanges) {
+        setNotifiedSOSIds(newNotifiedIds);
+      }
+      if (hasDismissedChanges) {
+        setDismissedSOSIds(newDismissedIds);
+      }
+      setNearbySOSNotifications(nearby);
+    };
+
+    processNearby();
   }, [location, activeSOSMarkers, deviceId, myActiveSOSResponse]);
 
   /**
@@ -526,6 +599,14 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     await refreshSOS();
   }, [activeSOSMarkers]);
 
+  /**
+   * Dismiss an SOS notification
+   */
+  const dismissSOSNotification = useCallback((sosId: string) => {
+    console.log('🔕 User dismissed SOS notification:', sosId.substring(0, 12));
+    setDismissedSOSIds(prev => new Set([...prev, sosId]));
+  }, []);
+
   const value: SOSContextType = {
     activeSOSMarkers,
     myActiveSOSRequest,
@@ -536,6 +617,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     respondToSOS,
     cancelSOSResponse,
     getSOSResponsesForMarker,
+    dismissSOSNotification,
     refreshSOS,
     isCreatingSOS
   };

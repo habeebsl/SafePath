@@ -10,7 +10,7 @@ import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { SOSDetailsModal } from './SOSDetailsModal';
 
 export function SOSNotificationBanner() {
-  const { nearbySOSNotifications } = useSOS();
+  const { nearbySOSNotifications, dismissSOSNotification } = useSOS();
   const [visible, setVisible] = useState(false);
   const [selectedSOS, setSelectedSOS] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
@@ -42,6 +42,11 @@ export function SOSNotificationBanner() {
   }, [currentNotification]);
 
   const handleDismiss = () => {
+    // Mark this SOS as dismissed so it doesn't come back
+    if (currentNotification) {
+      dismissSOSNotification(currentNotification.sosMarker.id);
+    }
+    
     Animated.timing(slideAnim, {
       toValue: -100,
       duration: 200,

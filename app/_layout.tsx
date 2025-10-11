@@ -7,10 +7,6 @@ import { LocationProvider } from '@/contexts/LocationContext';
 import { SOSProvider } from '@/contexts/SOSContext';
 import { TrailProvider } from '@/contexts/TrailContext';
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
 export default function RootLayout() {
   return (
     <DatabaseProvider>
@@ -18,7 +14,7 @@ export default function RootLayout() {
         <SOSProvider>
           <TrailProvider>
             <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
             </Stack>
             <StatusBar style="auto" />

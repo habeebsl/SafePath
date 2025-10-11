@@ -1,6 +1,8 @@
 import { Marker, MarkerType } from '@/types/marker';
 import NetInfo from '@react-native-community/netinfo';
 import {
+  deleteSOSMarker,
+  getActiveSOSMarkers,
   getAllMarkers,
   getUnsyncedMarkers,
   getUnsyncedSOSMarkers,
@@ -398,10 +400,12 @@ async function pushSOSMarkersToCloud(): Promise<void> {
   const unsyncedSOS = await getUnsyncedSOSMarkers();
 
   if (unsyncedSOS.length === 0) {
+    console.log('📤 No SOS markers to push');
     return;
   }
 
-  console.log(`📤 Pushing ${unsyncedSOS.length} SOS markers to cloud...`);
+  console.log(`📤 Pushing ${unsyncedSOS.length} SOS markers to cloud...`, 
+    unsyncedSOS.map(s => `${s.id.substring(0, 12)}:${s.status}`).join(', '));
 
   for (const sos of unsyncedSOS) {
     try {
@@ -483,29 +487,52 @@ async function pullSOSMarkersFromCloud(): Promise<void> {
   if (!supabase) return;
 
   try {
-    // Only pull SOS markers from the last 24 hours to avoid pulling old/stale markers
+    // Pull active SOS markers from the last 24 hours
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
     
-    const { data, error } = await supabase
+    const { data: activeData, error: activeError } = await supabase
       .from('sos_markers')
       .select('*')
       .eq('status', 'active')
       .gt('created_at', twentyFourHoursAgo)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ Error pulling SOS markers:', error);
+    if (activeError) {
+      console.error('❌ Error pulling active SOS markers:', activeError);
       return;
     }
 
-    if (!data || data.length === 0) {
-      return;
+    if (activeData && activeData.length > 0) {
+      console.log(`📥 Pulled ${activeData.length} active SOS markers from cloud`);
+      for (const cloudSOS of activeData) {
+        await upsertSOSMarker(cloudSOS);
+      }
     }
 
-    console.log(`📥 Pulled ${data.length} SOS markers from cloud`);
+    // Also pull recently completed markers (last 24 hours) to clean up local DB
+    const { data: completedData, error: completedError } = await supabase
+      .from('sos_markers')
+      .select('*')
+      .eq('status', 'completed')
+      .gt('created_at', twentyFourHoursAgo)
+      .order('created_at', { ascending: false });
 
-    for (const cloudSOS of data) {
-      await upsertSOSMarker(cloudSOS);
+    if (!completedError && completedData && completedData.length > 0) {
+      console.log(`📥 Found ${completedData.length} recently completed SOS markers, deleting from local DB`);
+      for (const completedSOS of completedData) {
+        await deleteSOSMarker(completedSOS.id);
+      }
+    }
+
+    // Clean up orphaned markers: markers in local DB that don't exist in cloud
+    const localMarkers = await getActiveSOSMarkers();
+    const cloudIds = new Set(activeData?.map(m => m.id) || []);
+    
+    for (const localMarker of localMarkers) {
+      if (!cloudIds.has(localMarker.id)) {
+        console.log(`🧹 Removing orphaned SOS marker from local DB: ${localMarker.id.substring(0, 12)}`);
+        await deleteSOSMarker(localMarker.id);
+      }
     }
   } catch (error) {
     console.error('❌ Error pulling SOS markers from cloud:', error);
@@ -567,9 +594,27 @@ function subscribeToSOSRealtimeUpdates(): void {
         
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const cloudSOS = payload.new as SupabaseSOSMarker;
+          
+          // If the SOS is completed, DELETE it from local DB immediately
+          if (cloudSOS.status === 'completed') {
+            console.log('✅ Real-time: SOS completed, deleting from local DB:', cloudSOS.id.substring(0, 12));
+            deleteSOSMarker(cloudSOS.id).catch(err => 
+              console.error('Error deleting completed SOS:', err)
+            );
+            return;
+          }
+          
           upsertSOSMarker(cloudSOS).then(() => {
-            console.log('✅ Real-time SOS marker synced:', cloudSOS.id);
+            console.log('✅ Real-time SOS marker synced:', cloudSOS.id.substring(0, 12), 'status:', cloudSOS.status);
           });
+        } else if (payload.eventType === 'DELETE') {
+          const deletedId = payload.old?.id;
+          if (deletedId) {
+            console.log('✅ Real-time: SOS deleted from cloud:', deletedId.substring(0, 12));
+            deleteSOSMarker(deletedId).catch(err =>
+              console.error('Error deleting SOS:', err)
+            );
+          }
         }
       }
     )
