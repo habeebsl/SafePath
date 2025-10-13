@@ -8,6 +8,7 @@ import { useSOS } from '@/contexts/SOSContext';
 import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SOSDetailsModal } from './SOSDetailsModal';
+import { MarkerIcon } from '../markers/MarkerIcon';
 
 export function SOSNotificationBanner() {
   const { nearbySOSNotifications, dismissSOSNotification } = useSOS();
@@ -82,7 +83,7 @@ export function SOSNotificationBanner() {
       >
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Icon name="exclamation-triangle" size={24} color="#FF0000" library="fa5" />
+            <MarkerIcon type="sos" size={24} color="#FF0000" />
           </View>
 
           <View style={styles.textContainer}>
@@ -124,6 +125,7 @@ const styles = StyleSheet.create({
     top: 60,
     left: 10,
     right: 10,
+    maxWidth: 400,
     backgroundColor: '#fff',
     borderRadius: 12,
     shadowColor: '#000',

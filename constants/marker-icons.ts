@@ -1,6 +1,5 @@
 import { MarkerIconConfig, MarkerType } from '@/types/marker';
 
-// TODO: Replace these placeholder SVGs with actual icons from your source
 // Format: SVG as a string (will be embedded in HTML)
 // Recommended size: 24x24 or 32x32 for best display
 

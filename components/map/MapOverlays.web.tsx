@@ -38,22 +38,23 @@ export function MapOverlays({
   
   const screenWidth = Dimensions.get('window').width;
   const isSmallScreen = screenWidth < 600;
+  const isDesktop = screenWidth >= 768;
   const regionText = getLocationDisplayText(currentCountry, isLocating);
   console.log('📝 Region text:', regionText);
   
   return (
     <>
       {/* Region badge */}
-      <View style={styles.regionBadge}>
-        <Icon name="map-marker-alt" size={12} color="#fff" style={styles.badgeIcon} />
-        <Text style={styles.regionText}>{regionText}</Text>
+      <View style={[styles.regionBadge, isDesktop && styles.regionBadgeDesktop]}>
+        <Icon name="map-marker-alt" size={isDesktop ? 16 : 12} color="#fff" style={styles.badgeIcon} />
+        <Text style={[styles.regionText, isDesktop && styles.regionTextDesktop]}>{regionText}</Text>
       </View>
 
       {/* Tracking status */}
       {isTracking && (
-        <View style={styles.trackingBadge}>
-          <View style={styles.trackingDot} />
-          <Text style={styles.trackingText}>Tracking</Text>
+        <View style={[styles.trackingBadge, isDesktop && styles.trackingBadgeDesktop]}>
+          <View style={[styles.trackingDot, isDesktop && styles.trackingDotDesktop]} />
+          <Text style={[styles.trackingText, isDesktop && styles.trackingTextDesktop]}>Tracking</Text>
         </View>
       )}
 
@@ -61,25 +62,35 @@ export function MapOverlays({
       {dbReady && (
         <View style={styles.syncButtonContainer}>
           <TouchableOpacity
-            style={styles.syncButton}
+            style={[styles.syncButton, isDesktop && styles.syncButtonDesktop]}
             onPress={onSync}
             disabled={refreshing}
           >
             {refreshing ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size={isDesktop ? "large" : "small"} color="#fff" />
             ) : (
-              <Icon name="sync-alt" size={16} color="#fff" />
+              <Icon name="sync-alt" size={isDesktop ? 22 : 16} color="#fff" />
             )}
             
             {/* Network Status Dot */}
             {!refreshing && (
-              <View style={[styles.statusDot, isOnline ? styles.statusOnline : styles.statusOffline]} />
+              <View style={[
+                styles.statusDot, 
+                isDesktop && styles.statusDotDesktop,
+                isOnline ? styles.statusOnline : styles.statusOffline
+              ]} />
             )}
           </TouchableOpacity>
           
           {/* Network Status Text */}
-          <View style={[styles.statusTextContainer, isOnline ? styles.statusTextOnline : styles.statusTextOffline]}>
-            <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
+          <View style={[
+            styles.statusTextContainer, 
+            isDesktop && styles.statusTextContainerDesktop,
+            isOnline ? styles.statusTextOnline : styles.statusTextOffline
+          ]}>
+            <Text style={[styles.statusText, isDesktop && styles.statusTextDesktop]}>
+              {isOnline ? 'Online' : 'Offline'}
+            </Text>
           </View>
         </View>
       )}
@@ -129,6 +140,12 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 1000,
   },
+  regionBadgeDesktop: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    gap: 8,
+  },
   badgeIcon: {
     marginRight: 0,
   },
@@ -136,6 +153,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  regionTextDesktop: {
+    fontSize: 16,
+    fontWeight: '700',
   },
   trackingBadge: {
     position: 'absolute',
@@ -155,16 +176,31 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 1000,
   },
+  trackingBadgeDesktop: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    gap: 8,
+  },
   trackingDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: '#fff',
   },
+  trackingDotDesktop: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
   trackingText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  trackingTextDesktop: {
+    fontSize: 16,
+    fontWeight: '700',
   },
   syncButtonContainer: {
     position: 'absolute',
@@ -187,6 +223,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  syncButtonDesktop: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
   statusDot: {
     position: 'absolute',
     top: 2,
@@ -196,6 +237,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
     borderColor: 'rgba(33, 150, 243, 0.95)',
+  },
+  statusDotDesktop: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    top: 3,
+    right: 3,
+    borderWidth: 3,
   },
   statusOnline: {
     backgroundColor: '#4CAF50',
@@ -208,6 +257,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+  statusTextContainerDesktop: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
   statusTextOnline: {
     backgroundColor: 'rgba(76, 175, 80, 0.95)',
   },
@@ -218,6 +272,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: '600',
+  },
+  statusTextDesktop: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   dbStatusContainer: {
     position: 'absolute',
@@ -255,7 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    maxWidth: '100%' as any, // Responsive width
+    maxWidth: '400px' as any, // Responsive width
     zIndex: 1000,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

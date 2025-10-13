@@ -1,19 +1,20 @@
+import { Icon } from '@/components/Icon';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { MarkerType } from '@/types/marker';
 import React, { useState } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
-  View,
+  Platform,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
+  useWindowDimensions,
+  View,
 } from 'react-native';
-import { MarkerType } from '@/types/marker';
-import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { MarkerIcon } from './MarkerIcon';
-import { Icon } from '@/components/Icon';
 
 interface AddMarkerModalProps {
   visible: boolean;
@@ -36,6 +37,8 @@ export function AddMarkerModal({
   onClose,
   onSave,
 }: AddMarkerModalProps) {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const [selectedType, setSelectedType] = useState<MarkerType>('danger');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -74,12 +77,12 @@ export function AddMarkerModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
       onRequestClose={onClose}
       statusBarTranslucent={true}
     >
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
           style={styles.overlayTouchable}
           activeOpacity={1}
@@ -87,10 +90,10 @@ export function AddMarkerModal({
         />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.keyboardView}
+          style={[styles.keyboardView, isDesktop ? styles.keyboardViewDesktop : undefined]}
           keyboardVerticalOffset={0}
         >
-          <View style={styles.modal}>
+          <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
               {/* Header */}
               <View style={styles.header}>
                 <Text style={styles.headerTitle}>Add Safety Marker</Text>
@@ -223,7 +226,12 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-  },
+  } as const,
+  overlayDesktop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  } as const,
   overlayTouchable: {
     position: 'absolute',
     top: 0,
@@ -231,10 +239,14 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
+  } as const,
   keyboardView: {
     justifyContent: 'flex-end',
-  },
+  } as const,
+  keyboardViewDesktop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  } as const,
   modal: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -246,7 +258,13 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
     overflow: 'hidden',
-  },
+  } as const,
+  modalDesktop: {
+    borderRadius: 20,
+    maxWidth: 500,
+    width: '100%',
+    maxHeight: 600,
+  } as const,
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,12 +272,12 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
-  },
+  } as const,
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#1a1a1a',
-  },
+  } as const,
   closeButton: {
     width: 32,
     height: 32,
@@ -267,41 +285,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     alignItems: 'center',
     justifyContent: 'center',
-  },
+  } as const,
   closeButtonText: {
     fontSize: 20,
     color: '#666',
-  },
+  } as const,
   content: {
     maxHeight: 500,
-  },
+  } as const,
   contentContainer: {
     padding: 20,
-  },
+  } as const,
   section: {
     marginBottom: 24,
-  },
+  } as const,
   sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginBottom: 8,
-  },
+  } as const,
   sectionLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
-  },
+  } as const,
   coordinates: {
     fontSize: 14,
     color: '#666',
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
+  } as const,
   typeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-  },
+  } as const,
   typeButton: {
     width: '22%',
     backgroundColor: '#f8f8f8',
@@ -312,7 +330,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e0e0e0',
     minHeight: 90,
-  },
+  } as const,
   typeIcon: {
     width: 32,
     height: 32,
@@ -321,14 +339,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
     overflow: 'hidden',
-  },
+  } as const,
   typeLabel: {
     fontSize: 10,
     color: '#666',
     textAlign: 'center',
     fontWeight: '500',
     marginTop: 'auto',
-  },
+  } as const,
   input: {
     backgroundColor: '#f8f8f8',
     borderRadius: 8,
@@ -337,11 +355,11 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     borderWidth: 1,
     borderColor: '#e0e0e0',
-  },
+  } as const,
   textArea: {
     height: 100,
     paddingTop: 12,
-  },
+  } as const,
   infoBox: {
     backgroundColor: '#E3F2FD',
     borderRadius: 8,
@@ -349,45 +367,45 @@ const styles = StyleSheet.create({
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'flex-start',
-  },
+  } as const,
   infoIcon: {
     marginRight: 8,
     marginTop: 2,
-  },
+  } as const,
   infoText: {
     fontSize: 13,
     color: '#1976D2',
     lineHeight: 18,
     flex: 1,
-  },
+  } as const,
   actions: {
     flexDirection: 'row',
     padding: 20,
     gap: 12,
     borderTopWidth: 1,
     borderTopColor: '#eee',
-  },
+  } as const,
   cancelButton: {
     flex: 1,
     padding: 16,
     borderRadius: 12,
     backgroundColor: '#f5f5f5',
     alignItems: 'center',
-  },
+  } as const,
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#666',
-  },
+  } as const,
   saveButton: {
     flex: 1,
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-  },
+  } as const,
   saveButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
-  },
+  } as const,
 });

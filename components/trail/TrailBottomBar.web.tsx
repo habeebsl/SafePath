@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingRight: 16,
     paddingVertical: 14,
-    maxWidth: '100%' as any, // Adapt to screen size
+    maxWidth: '400px' as any,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,

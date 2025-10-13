@@ -5,13 +5,13 @@
 
 import { Marker } from '@/types/marker';
 import {
-    addVote,
-    addMarker as dbAddMarker,
-    getAllMarkers,
-    getDeviceId,
-    getUserVote,
-    initDatabase,
-    updateMarkerVotes
+  addVote,
+  addMarker as dbAddMarker,
+  getAllMarkers,
+  getDeviceId,
+  getUserVote,
+  initDatabase,
+  updateMarkerVotes
 } from '@/utils/database';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
@@ -100,8 +100,10 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Find the marker
-      const marker = markers.find(m => m.id === markerId);
+      // Get fresh marker data directly from database (not from state)
+      const { getMarkerById } = await import('@/utils/database');
+      const marker = await getMarkerById(markerId);
+      
       if (!marker) {
         throw new Error('Marker not found');
       }
@@ -117,13 +119,14 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         throw new Error('You have already voted on this marker');
       }
 
-      // Calculate new vote counts
+      // Calculate new vote counts based on CURRENT database values
       const newAgrees = vote === 'agree' ? marker.agrees + 1 : marker.agrees;
       const newDisagrees = vote === 'disagree' ? marker.disagrees + 1 : marker.disagrees;
       const totalVotes = newAgrees + newDisagrees;
       const newConfidenceScore = Math.round((newAgrees / totalVotes) * 100);
 
       // Update database
+      console.log(`📝 [Web] Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
       await updateMarkerVotes(markerId, newAgrees, newDisagrees, newConfidenceScore);
       await addVote(markerId, deviceId, vote);
       await refreshMarkers();
@@ -133,7 +136,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       console.error('❌ [Web] Error voting on marker:', error);
       throw error;
     }
-  }, [deviceId, markers, refreshMarkers]);
+  }, [deviceId, refreshMarkers]);
 
   // Get user's vote for a marker
   const getUserVoteForMarker = useCallback(async (markerId: string): Promise<'agree' | 'disagree' | null> => {

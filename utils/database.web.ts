@@ -99,6 +99,37 @@ export async function addMarker(marker: Omit<Marker, 'syncedToCloud'>): Promise<
 }
 
 /**
+ * Get a single marker by ID (from Supabase)
+ */
+export async function getMarkerById(markerId: string): Promise<Marker | null> {
+  if (!supabase) return null;
+  
+  const { data, error } = await supabase
+    .from('markers')
+    .select('*')
+    .eq('id', markerId)
+    .single();
+  
+  if (error || !data) return null;
+  
+  return {
+    id: data.id,
+    type: data.type as MarkerType,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    title: data.title,
+    description: data.description,
+    createdBy: data.created_by,
+    createdAt: data.created_at,
+    lastVerified: data.last_verified,
+    agrees: data.agrees,
+    disagrees: data.disagrees,
+    confidenceScore: data.confidence_score,
+    syncedToServer: true,
+  };
+}
+
+/**
  * Update marker vote counts (directly in Supabase)
  */
 export async function updateMarkerVotes(

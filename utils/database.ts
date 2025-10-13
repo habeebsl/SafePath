@@ -324,6 +324,36 @@ export async function getMarkersInBounds(
 }
 
 /**
+ * Get a single marker by ID
+ */
+export async function getMarkerById(markerId: string): Promise<Marker | null> {
+  if (!db) throw new Error('Database not initialized');
+
+  const row = await db.getFirstAsync<any>(
+    'SELECT * FROM markers WHERE id = ?',
+    [markerId]
+  );
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    type: row.type as MarkerType,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    title: row.title,
+    description: row.description,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    lastVerified: row.last_verified,
+    agrees: row.agrees,
+    disagrees: row.disagrees,
+    confidenceScore: row.confidence_score,
+    syncedToServer: row.synced_to_cloud === 1,
+  };
+}
+
+/**
  * Update marker votes
  */
 export async function updateMarkerVotes(
@@ -344,7 +374,14 @@ export async function updateMarkerVotes(
   // Add to sync queue
   await addToSyncQueue(markerId, 'update');
 
-  console.log('✅ Marker votes updated:', markerId);
+  console.log(`✅ Marker votes updated in DB: ${markerId} - agrees=${agrees}, disagrees=${disagrees}`);
+  
+  // Verify the update
+  const verifyResult = await db.getFirstAsync<{ agrees: number; disagrees: number; synced_to_cloud: number }>(
+    'SELECT agrees, disagrees, synced_to_cloud FROM markers WHERE id = ?',
+    [markerId]
+  );
+  console.log(`🔍 DB verification: agrees=${verifyResult?.agrees}, disagrees=${verifyResult?.disagrees}, synced=${verifyResult?.synced_to_cloud}`);
 }
 
 /**
@@ -456,11 +493,74 @@ export async function getUnsyncedMarkers(): Promise<Marker[]> {
 }
 
 /**
+ * Get synced markers (for reconciliation)
+ */
+export async function getSyncedMarkers(): Promise<Marker[]> {
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM markers WHERE synced_to_cloud = 1'
+  );
+
+  return rows.map(row => ({
+    id: row.id,
+    type: row.type as MarkerType,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    title: row.title,
+    description: row.description,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    lastVerified: row.last_verified,
+    agrees: row.agrees,
+    disagrees: row.disagrees,
+    confidenceScore: row.confidence_score,
+    syncedToServer: true,
+  }));
+}
+
+/**
  * Upsert marker (insert or update if exists)
+ * Only updates if marker doesn't exist locally or if local marker is already synced
+ * Prevents overwriting unsynced local changes with stale cloud data
  */
 export async function upsertMarker(marker: Marker): Promise<void> {
   if (!db) throw new Error('Database not initialized');
 
+  // Check if marker exists and if it has unsynced changes
+  const existing = await db.getFirstAsync<{ synced_to_cloud: number; agrees: number; disagrees: number; created_by: string }>(
+    'SELECT synced_to_cloud, agrees, disagrees, created_by FROM markers WHERE id = ?',
+    [marker.id]
+  );
+
+  // If marker exists and has unsynced local changes
+  if (existing && existing.synced_to_cloud === 0) {
+    // If we created this marker locally and it hasn't synced yet, skip update entirely
+    // (the sync will push our version to cloud)
+    if (existing.created_by === await getDeviceId()) {
+      console.log(`⏭️  Skipping upsert for marker ${marker.id} - created locally, not yet synced`);
+      return;
+    }
+    
+    // Otherwise, it's a marker we voted on - only update if cloud has newer data
+    if (marker.lastVerified > (await db.getFirstAsync<{ last_verified: number }>('SELECT last_verified FROM markers WHERE id = ?', [marker.id]))?.last_verified!) {
+      console.log(`🔄 Updating marker ${marker.id} with newer cloud data (keeping unsynced flag for local vote)`);
+      // Update but keep synced_to_cloud = 0 so our vote still gets pushed
+      await db.runAsync(
+        `UPDATE markers SET 
+          agrees = ?, disagrees = ?, confidence_score = ?, last_verified = ?
+         WHERE id = ?`,
+        [marker.agrees, marker.disagrees, marker.confidenceScore, marker.lastVerified, marker.id]
+      );
+      console.log(`✅ Updated marker ${marker.id} from cloud (local vote will still sync)`);
+      return;
+    } else {
+      console.log(`⏭️  Skipping upsert for marker ${marker.id} - local version is newer`);
+      return;
+    }
+  }
+
+  // Safe to upsert - either new marker or already synced
   await db.runAsync(
     `INSERT OR REPLACE INTO markers (
       id, type, latitude, longitude, title, description,
@@ -484,7 +584,7 @@ export async function upsertMarker(marker: Marker): Promise<void> {
     ]
   );
 
-  console.log('✅ Marker upserted from cloud:', marker.id);
+  console.log(`✅ Marker upserted from cloud: ${marker.id} (agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
 }
 
 // ============================================================================
@@ -564,6 +664,18 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
 
   console.log('✅ SOS marker completed:', sosId, '- rows affected:', result.changes);
   console.log('🔄 Marked as unsynced, will push to cloud on next sync');
+}
+
+/**
+ * Delete a marker from local database (for sync reconciliation)
+ */
+export async function deleteMarker(markerId: string): Promise<void> {
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync('DELETE FROM markers WHERE id = ?', [markerId]);
+  await db.runAsync('DELETE FROM votes WHERE marker_id = ?', [markerId]);
+
+  console.log('✅ Marker deleted from local DB:', markerId);
 }
 
 /**

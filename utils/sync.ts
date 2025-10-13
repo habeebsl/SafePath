@@ -1,9 +1,11 @@
 import { Marker, MarkerType } from '@/types/marker';
 import NetInfo from '@react-native-community/netinfo';
 import {
+  deleteMarker,
   deleteSOSMarker,
   getActiveSOSMarkers,
   getAllMarkers,
+  getSyncedMarkers,
   getUnsyncedMarkers,
   getUnsyncedSOSMarkers,
   getUnsyncedSOSResponses,
@@ -157,16 +159,19 @@ async function performSync(): Promise<void> {
     // 2. Pull new markers from cloud to local
     await pullCloudMarkersToLocal();
 
-    // 3. Push unsynced SOS markers to cloud
+    // 3. Reconcile synced markers (cleanup orphaned markers)
+    await reconcileSyncedMarkers();
+
+    // 4. Push unsynced SOS markers to cloud
     await pushSOSMarkersToCloud();
 
-    // 4. Push unsynced SOS responses to cloud
+    // 5. Push unsynced SOS responses to cloud
     await pushSOSResponsesToCloud();
 
-    // 5. Pull SOS markers from cloud
+    // 6. Pull SOS markers from cloud
     await pullSOSMarkersFromCloud();
 
-    // 6. Pull SOS responses from cloud
+    // 7. Pull SOS responses from cloud
     await pullSOSResponsesFromCloud();
 
     console.log('✅ Sync completed successfully');
@@ -201,12 +206,17 @@ async function pushLocalMarkersToCloud(): Promise<void> {
       if (existingMarker) {
         // Similar marker found - merge instead of creating duplicate
         console.log(`🔀 Merging marker ${marker.id} into existing ${existingMarker.id}`);
+        console.log(`   Local: agrees=${marker.agrees}, disagrees=${marker.disagrees}`);
+        console.log(`   Cloud: agrees=${existingMarker.agrees}, disagrees=${existingMarker.disagrees}`);
         
-        // Merge vote counts
-        const mergedAgrees = existingMarker.agrees + marker.agrees;
-        const mergedDisagrees = existingMarker.disagrees + marker.disagrees;
+        // Take the HIGHER vote counts (don't add them together - that causes double counting!)
+        // This assumes both platforms are syncing the cumulative vote totals
+        const mergedAgrees = Math.max(existingMarker.agrees, marker.agrees);
+        const mergedDisagrees = Math.max(existingMarker.disagrees, marker.disagrees);
         const totalVotes = mergedAgrees + mergedDisagrees;
-        const mergedConfidenceScore = Math.round((mergedAgrees / totalVotes) * 100);
+        const mergedConfidenceScore = totalVotes > 0 ? Math.round((mergedAgrees / totalVotes) * 100) : 100;
+
+        console.log(`   Merged: agrees=${mergedAgrees}, disagrees=${mergedDisagrees}`);
 
         // Update the existing marker with merged data
         const { error: updateError } = await supabase
@@ -271,20 +281,20 @@ async function pullCloudMarkersToLocal(): Promise<void> {
   if (!supabase) return;
 
   try {
-    // Get the timestamp of our most recent local marker
+    // Get the timestamp of our most recent marker update
     const localMarkers = await getAllMarkers();
-    const mostRecentTimestamp = localMarkers.length > 0
-      ? Math.max(...localMarkers.map(m => m.createdAt))
+    const mostRecentVerified = localMarkers.length > 0
+      ? Math.max(...localMarkers.map(m => m.lastVerified))
       : 0;
 
-    console.log(`📥 Pulling markers newer than ${new Date(mostRecentTimestamp).toISOString()}...`);
+    console.log(`📥 Pulling markers updated since ${new Date(mostRecentVerified).toISOString()}...`);
 
-    // Fetch markers from cloud that are newer than our most recent
+    // Fetch markers from cloud that have been updated since our most recent
     const { data, error } = await supabase
       .from('markers')
       .select('*')
-      .gt('created_at', mostRecentTimestamp)
-      .order('created_at', { ascending: false });
+      .gt('last_verified', mostRecentVerified)
+      .order('last_verified', { ascending: false });
 
     if (error) {
       console.error('❌ Error pulling markers:', error);
@@ -292,11 +302,11 @@ async function pullCloudMarkersToLocal(): Promise<void> {
     }
 
     if (!data || data.length === 0) {
-      console.log('📥 No new markers to pull');
+      console.log('📥 No updated markers to pull');
       return;
     }
 
-    console.log(`📥 Pulled ${data.length} new markers from cloud`);
+    console.log(`📥 Pulled ${data.length} updated markers from cloud`);
 
     // Insert markers into local database
     for (const cloudMarker of data) {
@@ -322,6 +332,67 @@ async function pullCloudMarkersToLocal(): Promise<void> {
     console.log('✅ Cloud markers synced to local database');
   } catch (error) {
     console.error('❌ Error pulling markers from cloud:', error);
+  }
+}
+
+/**
+ * Reconcile synced markers - check if locally synced markers still exist in cloud
+ * Removes markers from local DB that have been deleted from cloud
+ */
+async function reconcileSyncedMarkers(): Promise<void> {
+  if (!supabase) return;
+
+  try {
+    // Get all locally synced markers
+    const syncedMarkers = await getSyncedMarkers();
+
+    if (syncedMarkers.length === 0) {
+      console.log('🔄 No synced markers to reconcile');
+      return;
+    }
+
+    console.log(`🔄 Reconciling ${syncedMarkers.length} synced markers with cloud...`);
+
+    // Get IDs of all local synced markers
+    const localMarkerIds = syncedMarkers.map(m => m.id);
+
+    // Fetch these markers from cloud to verify they still exist
+    const { data: cloudMarkers, error } = await supabase
+      .from('markers')
+      .select('id')
+      .in('id', localMarkerIds);
+
+    if (error) {
+      console.error('❌ Error fetching markers from cloud for reconciliation:', error);
+      return;
+    }
+
+    // Get IDs of markers that exist in cloud
+    const cloudMarkerIds = new Set(cloudMarkers?.map(m => m.id) || []);
+
+    // Find markers that exist locally but not in cloud (orphaned)
+    const orphanedMarkers = syncedMarkers.filter(m => !cloudMarkerIds.has(m.id));
+
+    if (orphanedMarkers.length === 0) {
+      console.log('✅ All synced markers exist in cloud - no cleanup needed');
+      return;
+    }
+
+    console.log(`🗑️ Found ${orphanedMarkers.length} orphaned markers - cleaning up...`);
+
+    // Delete orphaned markers from local DB
+    for (const marker of orphanedMarkers) {
+      try {
+        await deleteMarker(marker.id);
+        console.log(`✅ Deleted orphaned marker: ${marker.id}`);
+      } catch (error) {
+        console.error(`❌ Error deleting orphaned marker ${marker.id}:`, error);
+      }
+    }
+
+    console.log(`✅ Reconciliation complete - removed ${orphanedMarkers.length} orphaned markers`);
+  } catch (error) {
+    console.error('❌ Error during marker reconciliation:', error);
   }
 }
 
@@ -368,6 +439,14 @@ function subscribeToRealtimeUpdates(): void {
           upsertMarker(marker).then(() => {
             console.log('✅ Real-time marker synced to local DB:', marker.id);
           });
+        } else if (payload.eventType === 'DELETE') {
+          const deletedId = payload.old?.id;
+          if (deletedId) {
+            console.log('🗑️ Real-time: Marker deleted from cloud:', deletedId);
+            deleteMarker(deletedId).catch(err =>
+              console.error('Error deleting marker from local DB:', err)
+            );
+          }
         }
       }
     )

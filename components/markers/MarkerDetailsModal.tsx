@@ -13,6 +13,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { MarkerIcon } from './MarkerIcon';
 
@@ -26,22 +27,40 @@ interface MarkerDetailsModalProps {
 
 export function MarkerDetailsModal({
   visible,
-  marker,
+  marker: initialMarker,
   userVote: providedUserVote,
   onClose,
   onVote: providedOnVote,
 }: MarkerDetailsModalProps) {
-  const { voteOnMarker, getUserVoteForMarker, refreshMarkers, deviceId } = useDatabase();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
+  const { markers, voteOnMarker, getUserVoteForMarker, refreshMarkers, deviceId } = useDatabase();
   const { createTrail } = useTrail();
   const [userVote, setUserVote] = useState<'agree' | 'disagree' | null>(providedUserVote || null);
   const [isVoting, setIsVoting] = useState(false);
   const [isLoadingVote, setIsLoadingVote] = useState(false);
+  const [currentMarker, setCurrentMarker] = useState<Marker | null>(initialMarker);
+
+  // Update current marker when markers array changes (to get fresh vote counts)
+  useEffect(() => {
+    if (initialMarker) {
+      const freshMarker = markers.find(m => m.id === initialMarker.id);
+      if (freshMarker) {
+        console.log('🔄 Updated marker with fresh data:', freshMarker.id, 'agrees:', freshMarker.agrees, 'disagrees:', freshMarker.disagrees);
+        setCurrentMarker(freshMarker);
+      } else {
+        setCurrentMarker(initialMarker);
+      }
+    } else {
+      setCurrentMarker(null);
+    }
+  }, [initialMarker, markers]);
 
   // Fetch user's vote when modal opens
   useEffect(() => {
-    if (visible && marker) {
+    if (visible && currentMarker) {
       setIsLoadingVote(true);
-      getUserVoteForMarker(marker.id)
+      getUserVoteForMarker(currentMarker.id)
         .then((vote) => {
           setUserVote(vote);
         })
@@ -52,10 +71,12 @@ export function MarkerDetailsModal({
           setIsLoadingVote(false);
         });
     }
-  }, [visible, marker?.id]);
+  }, [visible, currentMarker?.id]);
 
   // Early return AFTER all hooks
-  if (!marker) return null;
+  if (!currentMarker) return null;
+
+  const marker = currentMarker;
 
   const config = MARKER_CONFIG[marker.type];
   const totalVotes = marker.agrees + marker.disagrees;
@@ -122,18 +143,18 @@ export function MarkerDetailsModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
       onRequestClose={onClose}
       statusBarTranslucent={true}
     >
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
           style={styles.overlayTouchable}
           activeOpacity={1}
           onPress={onClose}
         />
-        <View style={styles.modal}>
+        <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
             {/* Header with marker type */}
             <View style={[styles.header, { backgroundColor: config.color + '20' }]}>
               <View style={styles.headerTop}>
@@ -357,7 +378,12 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-  },
+  } as const,
+  overlayDesktop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  } as const,
   overlayTouchable: {
     position: 'absolute',
     top: 0,
@@ -365,7 +391,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
+  } as const,
   modal: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -377,12 +403,18 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
     overflow: 'hidden',
-  },
+  } as const,
+  modalDesktop: {
+    borderRadius: 20,
+    maxWidth: 500,
+    width: '100%',
+    maxHeight: 700,
+  } as const,
   header: {
     padding: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-  },
+  } as const,
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',

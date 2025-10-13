@@ -11,13 +11,14 @@ import { SOSMarker, SOSResponse } from '@/types/sos';
 import { TrailContext } from '@/types/trail';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 
 interface SOSDetailsModalProps {
@@ -27,6 +28,8 @@ interface SOSDetailsModalProps {
 }
 
 export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModalProps) {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const { getSOSResponsesForMarker, completeSOSRequest, respondToSOS, cancelSOSResponse, myActiveSOSRequest, myActiveSOSResponse } = useSOS();
   const { createTrail } = useTrail();
   const [responses, setResponses] = useState<SOSResponse[]>([]);
@@ -163,10 +166,10 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
   // CREATOR VIEW
   if (isCreator) {
     return (
-      <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
-        <View style={styles.overlay}>
+      <Modal visible={visible} animationType={isDesktop ? "fade" : "slide"} transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
+        <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
           <TouchableOpacity style={styles.overlayTouchable} activeOpacity={1} onPress={onClose} />
-          <View style={styles.modal}>
+          <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
             {/* Header */}
             <View style={[styles.header, sosMarker.status === 'completed' ? styles.headerCompleted : styles.headerActive]}>
               <View style={styles.headerContent}>
@@ -252,10 +255,10 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
   // RESPONDER VIEW
   if (isResponder) {
     return (
-      <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
-        <View style={styles.overlay}>
+      <Modal visible={visible} animationType={isDesktop ? "fade" : "slide"} transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
+        <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
           <TouchableOpacity style={styles.overlayTouchable} activeOpacity={1} onPress={onClose} />
-          <View style={styles.modal}>
+          <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
             {/* Header */}
             <View style={[styles.header, styles.headerResponding]}>
               <View style={styles.headerContent}>
@@ -329,10 +332,10 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
 
   // VIEWER VIEW (not creator or responder)
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
-      <View style={styles.overlay}>
+    <Modal visible={visible} animationType={isDesktop ? "fade" : "slide"} transparent={true} onRequestClose={onClose} statusBarTranslucent={true}>
+      <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity style={styles.overlayTouchable} activeOpacity={1} onPress={onClose} />
-        <View style={styles.modal}>
+        <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
           {/* Header */}
           <View style={[styles.header, styles.headerSOS]}>
             <View style={styles.headerContent}>
@@ -404,7 +407,12 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-  },
+  } as const,
+  overlayDesktop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  } as const,
   overlayTouchable: {
     position: 'absolute',
     top: 0,
@@ -412,7 +420,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
+  } as const,
   modal: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -423,7 +431,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 10,
     elevation: 10,
-  },
+  } as const,
+  modalDesktop: {
+    borderRadius: 20,
+    maxWidth: 500,
+    width: '100%',
+    maxHeight: 700,
+  } as const,
   header: {
     flexDirection: 'row',
     alignItems: 'center',

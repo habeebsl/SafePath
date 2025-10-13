@@ -66,8 +66,16 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
   const refreshMarkers = useCallback(async () => {
     try {
       const allMarkers = await getAllMarkers();
+      console.log(`🔄 Refreshing markers - fetched ${allMarkers.length} from DB`);
+      
+      // Log first marker's vote counts for debugging
+      if (allMarkers.length > 0) {
+        const firstMarker = allMarkers[0];
+        console.log(`� Sample marker ${firstMarker.id.substring(0, 8)}: agrees=${firstMarker.agrees}, disagrees=${firstMarker.disagrees}`);
+      }
+      
       setMarkers(allMarkers);
-      console.log(`🔄 Refreshed ${allMarkers.length} markers`);
+      console.log(`✅ Markers state updated`);
     } catch (error) {
       console.error('❌ Error refreshing markers:', error);
     }
@@ -92,23 +100,20 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
   }, [refreshMarkers, isReady]);
 
   // Vote on a marker
-  const voteOnMarker = useCallback(async (markerId: string, vote: 'agree' | 'disagree') => {
-    if (!isReady) {
-      throw new Error('Database not ready. Please wait a moment and try again.');
-    }
-
-    if (!deviceId) {
-      throw new Error('Device ID not available');
+    const voteOnMarker = useCallback(async (markerId: string, vote: 'agree' | 'disagree') => {
+    if (!isReady || !deviceId) {
+      throw new Error('Database not ready or device ID not set');
     }
 
     try {
-      // Find the marker
-      const marker = markers.find(m => m.id === markerId);
+      // Get fresh marker data directly from database (not from state)
+      const { getMarkerById } = await import('@/utils/database');
+      const marker = await getMarkerById(markerId);
+      
       if (!marker) {
         throw new Error('Marker not found');
       }
 
-      // Check if user created this marker
       if (marker.createdBy === deviceId) {
         throw new Error('You cannot vote on markers you created');
       }
@@ -119,17 +124,20 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         throw new Error('You have already voted on this marker');
       }
 
-      // Update votes
+      // Calculate new votes based on CURRENT database values
       const newAgrees = vote === 'agree' ? marker.agrees + 1 : marker.agrees;
       const newDisagrees = vote === 'disagree' ? marker.disagrees + 1 : marker.disagrees;
       const totalVotes = newAgrees + newDisagrees;
       const newConfidenceScore = Math.round((newAgrees / totalVotes) * 100);
 
       // Update database
+      console.log(`📝 Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
       await updateMarkerVotes(markerId, newAgrees, newDisagrees, newConfidenceScore);
       await addVote(markerId, deviceId, vote);
 
-      // Refresh markers
+      console.log('🔄 Vote saved to DB, now refreshing markers...');
+      
+      // Refresh markers to update UI
       await refreshMarkers();
 
       console.log('✅ Vote recorded successfully');
@@ -137,7 +145,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       console.error('❌ Error voting on marker:', error);
       throw error;
     }
-  }, [deviceId, markers, refreshMarkers, isReady]);
+  }, [deviceId, refreshMarkers, isReady]);
 
   // Get user's vote for a marker
   const getUserVoteForMarker = useCallback(async (markerId: string): Promise<'agree' | 'disagree' | null> => {
