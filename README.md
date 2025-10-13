@@ -200,4 +200,4 @@ The alert system is custom-built because native web alerts look terrible. It use
 
 ## License
 
-This project is private and not currently open source.
+This project is private and not currently open source yet.
