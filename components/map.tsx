@@ -463,6 +463,12 @@ export default function MapComponent() {
       `(function() {
         if (!window.map) return;
         
+        // Remove existing marker with same ID to prevent duplicates
+        if (window.safePathMarkers['` + marker.id + `']) {
+          window.map.removeLayer(window.safePathMarkers['` + marker.id + `']);
+          delete window.safePathMarkers['` + marker.id + `'];
+        }
+        
         var markerHTML = ` + markerHTMLEscaped + `;
         
         var icon = L.divIcon({
@@ -527,6 +533,12 @@ export default function MapComponent() {
         // Initialize SOS markers object if needed
         if (!window.sosMarkers) {
           window.sosMarkers = {};
+        }
+        
+        // Remove existing SOS marker with same ID to prevent duplicates
+        if (window.sosMarkers['` + sosMarker.id + `']) {
+          window.map.removeLayer(window.sosMarkers['` + sosMarker.id + `']);
+          delete window.sosMarkers['` + sosMarker.id + `'];
         }
         
         var markerHTML = ` + markerHTMLEscaped + `;

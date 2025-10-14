@@ -180,7 +180,7 @@ export function generateMarkerHTML(type: MarkerType, confidence: number, status?
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
       position: relative;
     ">
       <div style="transform: rotate(45deg); width: 24px; height: 24px;">

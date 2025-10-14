@@ -76,10 +76,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    boxShadow: '0px -2px 4px 0px rgba(0, 0, 0, 0.1)',
     elevation: 8,
     zIndex: 1001, // Higher than location info (1000) to appear in front
   },
