@@ -14,12 +14,12 @@ import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { Marker, MarkerType } from '@/types/marker';
 import { SOSMarker } from '@/types/sos';
+import { uiLogger } from '@/utils/logger';
 import { handleManualSync, handleSaveMarker } from '@/utils/map-handlers';
 import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { uiLogger } from '@/utils/logger';
 
 // Dynamically import Leaflet to avoid SSR issues
 let L: any;
@@ -170,6 +170,12 @@ export default function MapComponent() {
   const addMarkerToMap = (marker: Marker) => {
     if (!mapReady || !mapRef.current || !L) return;
 
+    // Remove existing marker with same ID to prevent duplicates
+    if (markerLayersRef.current[marker.id]) {
+      mapRef.current.removeLayer(markerLayersRef.current[marker.id]);
+      delete markerLayersRef.current[marker.id];
+    }
+
     const markerHTML = generateMarkerHTML(marker.type, marker.confidenceScore);
     
     const icon = L.divIcon({
@@ -205,6 +211,12 @@ export default function MapComponent() {
   // Add SOS marker to Leaflet map
   const addSOSMarkerToMap = (sosMarker: SOSMarker) => {
     if (!mapReady || !mapRef.current || !L) return;
+
+    // Remove existing SOS marker with same ID to prevent duplicates
+    if (sosMarkerLayersRef.current[sosMarker.id]) {
+      mapRef.current.removeLayer(sosMarkerLayersRef.current[sosMarker.id]);
+      delete sosMarkerLayersRef.current[sosMarker.id];
+    }
 
     const markerHTML = generateMarkerHTML('sos' as MarkerType, 100, sosMarker.status);
     
@@ -472,27 +484,8 @@ export default function MapComponent() {
           />
         )}
 
-        {/* SafePath Markers */}
-        {markers.map((marker) => (
-          <LeafletMarker
-            key={marker.id}
-            position={[marker.latitude, marker.longitude]}
-            eventHandlers={{
-              click: () => modals.openMarkerDetails(marker),
-            }}
-          />
-        ))}
-
-        {/* SOS Markers */}
-        {activeSOSMarkers.map((sosMarker) => (
-          <LeafletMarker
-            key={sosMarker.id}
-            position={[sosMarker.latitude, sosMarker.longitude]}
-            eventHandlers={{
-              click: () => modals.openSOSDetails(sosMarker),
-            }}
-          />
-        ))}
+        {/* SafePath Markers and SOS Markers are added programmatically via addMarkerToMap() and addSOSMarkerToMap() 
+            with custom HTML icons. They are NOT rendered here to avoid duplicate markers. */}
 
         {/* Active Trail */}
         {trailWaypoints && trailWaypoints.length > 1 && (
