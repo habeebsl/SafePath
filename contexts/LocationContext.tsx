@@ -1,13 +1,14 @@
-import { useLocationTracking } from '@/hooks/useLocationTracking';
+import { LocationTrackingStatus, useLocationTracking } from '@/hooks/useLocationTracking';
+import { uiLogger } from '@/utils/logger';
 import { getCountryFromCoordinates } from '@/utils/region-helpers';
 import * as Location from 'expo-location';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { uiLogger } from '@/utils/logger';
 
 interface LocationContextType {
   location: Location.LocationObject | null;
   error: string | null;
   isTracking: boolean;
+  trackingStatus: LocationTrackingStatus;
   currentCountry: string | null;
   isLocating: boolean;
   startTracking: () => Promise<void>;
@@ -53,7 +54,12 @@ export function LocationProvider({ children }: LocationProviderProps) {
 
   return (
     <LocationContext.Provider value={{
-      ...locationData,
+      location: locationData.location,
+      error: locationData.error,
+      isTracking: locationData.isTracking,
+      trackingStatus: locationData.trackingStatus,
+      startTracking: locationData.startTracking,
+      stopTracking: locationData.stopTracking,
       currentCountry,
       isLocating,
     }}>

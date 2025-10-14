@@ -4,15 +4,17 @@
  */
 
 import { Icon } from '@/components/Icon';
+import { LocationTrackingStatus } from '@/hooks/useLocationTracking';
 import { Trail } from '@/types/trail';
+import { uiLogger } from '@/utils/logger';
 import { getLocationDisplayText } from '@/utils/region-helpers';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { uiLogger } from '@/utils/logger';
 
 interface MapOverlaysProps {
   isTracking: boolean;
+  trackingStatus: LocationTrackingStatus;
   dbReady: boolean;
   location: LocationObject | null;
   isOnline: boolean;
@@ -25,6 +27,7 @@ interface MapOverlaysProps {
 
 export function MapOverlays({
   isTracking,
+  trackingStatus,
   dbReady,
   location,
   isOnline,
@@ -52,12 +55,30 @@ export function MapOverlays({
       </View>
 
       {/* Tracking status */}
-      {isTracking && (
-        <View style={[styles.trackingBadge, isDesktop && styles.trackingBadgeDesktop]}>
-          <View style={[styles.trackingDot, isDesktop && styles.trackingDotDesktop]} />
-          <Text style={[styles.trackingText, isDesktop && styles.trackingTextDesktop]}>Tracking</Text>
-        </View>
-      )}
+      <View style={[
+        styles.trackingBadge,
+        isDesktop && styles.trackingBadgeDesktop,
+        trackingStatus === 'tracking' && styles.trackingBadgeActive,
+        trackingStatus === 'permission-denied' && styles.trackingBadgeError,
+        trackingStatus === 'location-disabled' && styles.trackingBadgeError,
+        trackingStatus === 'error' && styles.trackingBadgeError,
+        trackingStatus === 'stopped' && styles.trackingBadgeStopped,
+      ]}>
+        <View style={[
+          styles.trackingDot,
+          isDesktop && styles.trackingDotDesktop,
+          trackingStatus === 'tracking' && styles.trackingDotActive,
+          (trackingStatus === 'permission-denied' || trackingStatus === 'location-disabled' || trackingStatus === 'error') && styles.trackingDotError,
+          trackingStatus === 'stopped' && styles.trackingDotStopped,
+        ]} />
+        <Text style={[styles.trackingText, isDesktop && styles.trackingTextDesktop]}>
+          {trackingStatus === 'tracking' && 'Tracking'}
+          {trackingStatus === 'permission-denied' && 'Permission Denied'}
+          {trackingStatus === 'location-disabled' && 'Location Off'}
+          {trackingStatus === 'error' && 'Location Error'}
+          {trackingStatus === 'stopped' && 'Not Tracking'}
+        </Text>
+      </View>
 
       {/* Sync Button */}
       {dbReady && (
@@ -160,7 +181,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 60,
     right: 10,
-    backgroundColor: 'rgba(76, 175, 80, 0.95)',
+    backgroundColor: 'rgba(158, 158, 158, 0.95)', // Default gray
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -170,6 +191,15 @@ const styles = StyleSheet.create({
     boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
     elevation: 5,
     zIndex: 1000,
+  },
+  trackingBadgeActive: {
+    backgroundColor: 'rgba(76, 175, 80, 0.95)', // Green for active tracking
+  },
+  trackingBadgeError: {
+    backgroundColor: 'rgba(239, 68, 68, 0.95)', // Red for errors
+  },
+  trackingBadgeStopped: {
+    backgroundColor: 'rgba(158, 158, 158, 0.95)', // Gray for stopped
   },
   trackingBadgeDesktop: {
     paddingHorizontal: 16,
@@ -182,6 +212,15 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#fff',
+  },
+  trackingDotActive: {
+    backgroundColor: '#fff',
+  },
+  trackingDotError: {
+    backgroundColor: '#fff',
+  },
+  trackingDotStopped: {
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
   },
   trackingDotDesktop: {
     width: 12,

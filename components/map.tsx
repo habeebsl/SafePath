@@ -22,7 +22,7 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 export default function MapComponent() {
-  const { location, isTracking, currentCountry, isLocating } = useLocation();
+  const { location, isTracking, trackingStatus, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
   const { activeSOSMarkers } = useSOS();
   const { activeTrail } = useTrail();
@@ -673,6 +673,7 @@ export default function MapComponent() {
       {/* Map Overlays (badges, status indicators, sync button) */}
       <MapOverlays
         isTracking={isTracking}
+        trackingStatus={trackingStatus}
         dbReady={dbReady}
         location={location}
         isOnline={isOnline}
