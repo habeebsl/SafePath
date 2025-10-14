@@ -3,6 +3,7 @@
  */
 
 import { Marker, MarkerType } from '@/types/marker';
+import { logger } from '@/utils/logger';
 
 interface HandleSaveMarkerParams {
   data: {
@@ -33,7 +34,7 @@ export async function handleSaveMarker({
     throw new Error('Database is still initializing. Please wait a moment and try again.');
   }
 
-  console.log('🗺️ Saving new marker...');
+  logger.info('🗺️ Saving new marker...');
   const newMarker: Marker = {
     id: `marker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     type: data.type,
@@ -58,7 +59,7 @@ export async function handleSaveMarker({
     onSuccess(newMarker);
   }
 
-  console.log('✅ Marker saved:', newMarker.id);
+  logger.info('✅ Marker saved:', newMarker.id);
 }
 
 interface HandleManualSyncParams {
@@ -75,7 +76,7 @@ export async function handleManualSync({
   refreshMarkers,
   onSuccess,
 }: HandleManualSyncParams): Promise<void> {
-  console.log('🔄 Starting manual sync...');
+  logger.info('🔄 Starting manual sync...');
   
   // Trigger sync with cloud
   await triggerSync();
@@ -88,5 +89,5 @@ export async function handleManualSync({
     onSuccess();
   }
   
-  console.log('✅ Manual sync completed');
+  logger.info('✅ Manual sync completed');
 }

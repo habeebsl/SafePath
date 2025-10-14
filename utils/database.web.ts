@@ -5,6 +5,7 @@
 
 import { Marker, MarkerType } from '@/types/marker';
 import { supabase } from './supabase';
+import { dbLogger } from '@/utils/logger';
 
 // Web doesn't use local SQLite, so these are no-ops or direct Supabase calls
 let deviceId: string | null = null;
@@ -13,7 +14,7 @@ let deviceId: string | null = null;
  * Initialize the database (no-op on web)
  */
 export async function initDatabase(): Promise<void> {
-  console.log('✅ Web database initialized (using Supabase directly)');
+  dbLogger.info('✅ Web database initialized (using Supabase directly)');
 }
 
 /**
@@ -35,7 +36,7 @@ export async function getDeviceId(): Promise<string> {
   deviceId = `device_${timestamp}_${random}`;
   
   localStorage.setItem('safepath_device_id', deviceId);
-  console.log('📱 Device ID:', deviceId);
+  dbLogger.info('📱 Device ID:', deviceId);
   
   return deviceId;
 }
@@ -52,7 +53,7 @@ export async function getAllMarkers(): Promise<Marker[]> {
     .order('created_at', { ascending: false });
   
   if (error) {
-    console.error('Error fetching markers:', error);
+    dbLogger.error('Error fetching markers:', error);
     return [];
   }
   
@@ -95,7 +96,7 @@ export async function addMarker(marker: Omit<Marker, 'syncedToCloud'>): Promise<
   });
   
   if (error) throw error;
-  console.log('✅ Marker added:', marker.id);
+  dbLogger.info('✅ Marker added:', marker.id);
 }
 
 /**
@@ -226,7 +227,7 @@ export async function getActiveSOSMarkers(): Promise<any[]> {
     .order('created_at', { ascending: false });
   
   if (error) {
-    console.error('Error fetching SOS markers:', error);
+    dbLogger.error('Error fetching SOS markers:', error);
     return [];
   }
   
@@ -256,7 +257,7 @@ export async function createSOSMarker(sos: {
   });
   
   if (error) throw error;
-  console.log('✅ SOS marker created:', sos.id);
+  dbLogger.info('✅ SOS marker created:', sos.id);
 }
 
 /**
@@ -277,7 +278,7 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
     .eq('id', sosId);
   
   if (error) throw error;
-  console.log('✅ SOS marker completed:', sosId);
+  dbLogger.info('✅ SOS marker completed:', sosId);
 }
 
 /**
@@ -289,7 +290,7 @@ export async function deleteSOSMarker(sosId: string): Promise<void> {
   await supabase.from('sos_responses').delete().eq('sos_marker_id', sosId);
   await supabase.from('sos_markers').delete().eq('id', sosId);
   
-  console.log('✅ SOS marker deleted:', sosId);
+  dbLogger.info('✅ SOS marker deleted:', sosId);
 }
 
 /**
@@ -358,7 +359,7 @@ export async function addSOSResponse(response: {
   });
   
   if (error) throw error;
-  console.log('✅ SOS response added');
+  dbLogger.info('✅ SOS response added');
 }
 
 /**
@@ -424,7 +425,7 @@ export async function cancelSOSResponse(sosMarkerId: string, responderDeviceId: 
     .eq('responder_device_id', responderDeviceId);
   
   if (error) throw error;
-  console.log('✅ SOS response cancelled');
+  dbLogger.info('✅ SOS response cancelled');
 }
 
 /**
@@ -443,7 +444,7 @@ export async function markResponderArrived(sosMarkerId: string, responderDeviceI
     .eq('responder_device_id', responderDeviceId);
   
   if (error) throw error;
-  console.log('✅ Responder marked as arrived');
+  dbLogger.info('✅ Responder marked as arrived');
 }
 
 // No-op functions for compatibility with native code

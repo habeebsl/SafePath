@@ -16,6 +16,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { MarkerIcon } from './MarkerIcon';
+import { uiLogger } from '@/utils/logger';
 
 interface MarkerDetailsModalProps {
   visible: boolean;
@@ -46,7 +47,7 @@ export function MarkerDetailsModal({
     if (initialMarker) {
       const freshMarker = markers.find(m => m.id === initialMarker.id);
       if (freshMarker) {
-        console.log('🔄 Updated marker with fresh data:', freshMarker.id, 'agrees:', freshMarker.agrees, 'disagrees:', freshMarker.disagrees);
+        uiLogger.info('🔄 Updated marker with fresh data:', freshMarker.id, 'agrees:', freshMarker.agrees, 'disagrees:', freshMarker.disagrees);
         setCurrentMarker(freshMarker);
       } else {
         setCurrentMarker(initialMarker);
@@ -65,7 +66,7 @@ export function MarkerDetailsModal({
           setUserVote(vote);
         })
         .catch((error) => {
-          console.error('Error fetching user vote:', error);
+          uiLogger.error('Error fetching user vote:', error);
         })
         .finally(() => {
           setIsLoadingVote(false);
@@ -105,7 +106,7 @@ export function MarkerDetailsModal({
         onClose();
       }, 500);
     } catch (error: any) {
-      console.error('Error voting:', error);
+      uiLogger.error('Error voting:', error);
       alert(error.message || 'Failed to record vote. Please try again.');
     } finally {
       setIsVoting(false);
@@ -136,7 +137,7 @@ export function MarkerDetailsModal({
       await createTrail(marker, trailContext);
       onClose();
     } catch (error) {
-      console.error('Error creating trail:', error);
+      uiLogger.error('Error creating trail:', error);
     }
   };
 

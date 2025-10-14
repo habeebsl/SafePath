@@ -1,5 +1,6 @@
 import { Marker, MarkerType } from '@/types/marker';
 import * as SQLite from 'expo-sqlite';
+import { dbLogger } from '@/utils/logger';
 
 let db: SQLite.SQLiteDatabase | null = null;
 let isInitializing = false;
@@ -11,25 +12,25 @@ let initPromise: Promise<void> | null = null;
 export async function initDatabase(): Promise<void> {
   // If already initialized, return
   if (db) {
-    console.log('✅ Database already initialized');
+    dbLogger.info('✅ Database already initialized');
     return;
   }
 
   // If currently initializing, wait for that to finish
   if (isInitializing && initPromise) {
-    console.log('⏳ Waiting for database initialization...');
+    dbLogger.info('⏳ Waiting for database initialization...');
     return initPromise;
   }
 
   isInitializing = true;
   initPromise = (async () => {
     try {
-      console.log('🔧 Opening database...');
+      dbLogger.info('🔧 Opening database...');
       db = await SQLite.openDatabaseAsync('safepath.db');
-      console.log('✅ Database opened');
+      dbLogger.info('✅ Database opened');
       
       // Create markers table
-      console.log('📋 Creating markers table...');
+      dbLogger.info('📋 Creating markers table...');
       await db.execAsync(`
       CREATE TABLE IF NOT EXISTS markers (
         id TEXT PRIMARY KEY,
@@ -119,7 +120,7 @@ export async function initDatabase(): Promise<void> {
       const hasOldColumn = tableInfo.some((col: any) => col.name === 'responded_at');
       
       if (hasOldColumn) {
-        console.log('🔄 Migrating sos_responses table to new schema...');
+        dbLogger.info('🔄 Migrating sos_responses table to new schema...');
         
         // Create new table with correct schema
         await db.execAsync(`
@@ -161,10 +162,10 @@ export async function initDatabase(): Promise<void> {
           ALTER TABLE sos_responses_new RENAME TO sos_responses;
         `);
         
-        console.log('✅ Migration completed successfully');
+        dbLogger.info('✅ Migration completed successfully');
       }
     } catch (migrationError) {
-      console.log('ℹ️ No migration needed or already completed');
+      dbLogger.info('ℹ️ No migration needed or already completed');
     }
 
     // Create indexes for SOS tables
@@ -175,10 +176,10 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_sos_responses_status ON sos_responses(status);
     `);
 
-    console.log('✅ Database initialized successfully');
+    dbLogger.info('✅ Database initialized successfully');
     isInitializing = false;
   } catch (error) {
-    console.error('❌ Error initializing database:', error);
+    dbLogger.error('❌ Error initializing database:', error);
     db = null;
     isInitializing = false;
     initPromise = null;
@@ -220,7 +221,7 @@ export async function getDeviceId(): Promise<string> {
  */
 export async function addMarker(marker: Marker): Promise<void> {
   if (!db) {
-    console.error('❌ Database not initialized when adding marker');
+    dbLogger.error('❌ Database not initialized when adding marker');
     throw new Error('Database not initialized');
   }
 
@@ -253,9 +254,9 @@ export async function addMarker(marker: Marker): Promise<void> {
     await addToSyncQueue(marker.id, 'insert');
   }
 
-  console.log('✅ Marker added to database:', marker.id);
+  dbLogger.info('✅ Marker added to database:', marker.id);
   } catch (error) {
-    console.error('❌ Error adding marker to database:', error);
+    dbLogger.error('❌ Error adding marker to database:', error);
     throw error;
   }
 }
@@ -374,14 +375,14 @@ export async function updateMarkerVotes(
   // Add to sync queue
   await addToSyncQueue(markerId, 'update');
 
-  console.log(`✅ Marker votes updated in DB: ${markerId} - agrees=${agrees}, disagrees=${disagrees}`);
+  dbLogger.info(`✅ Marker votes updated in DB: ${markerId} - agrees=${agrees}, disagrees=${disagrees}`);
   
   // Verify the update
   const verifyResult = await db.getFirstAsync<{ agrees: number; disagrees: number; synced_to_cloud: number }>(
     'SELECT agrees, disagrees, synced_to_cloud FROM markers WHERE id = ?',
     [markerId]
   );
-  console.log(`🔍 DB verification: agrees=${verifyResult?.agrees}, disagrees=${verifyResult?.disagrees}, synced=${verifyResult?.synced_to_cloud}`);
+  dbLogger.info(`🔍 DB verification: agrees=${verifyResult?.agrees}, disagrees=${verifyResult?.disagrees}, synced=${verifyResult?.synced_to_cloud}`);
 }
 
 /**
@@ -417,7 +418,7 @@ export async function addVote(
     [markerId, deviceId, voteType, Date.now()]
   );
 
-  console.log('✅ Vote added:', markerId, voteType);
+  dbLogger.info('✅ Vote added:', markerId, voteType);
 }
 
 /**
@@ -462,7 +463,7 @@ export async function markMarkerAsSynced(markerId: string): Promise<void> {
     [markerId]
   );
 
-  console.log('✅ Marker marked as synced:', markerId);
+  dbLogger.info('✅ Marker marked as synced:', markerId);
 }
 
 /**
@@ -538,13 +539,13 @@ export async function upsertMarker(marker: Marker): Promise<void> {
     // If we created this marker locally and it hasn't synced yet, skip update entirely
     // (the sync will push our version to cloud)
     if (existing.created_by === await getDeviceId()) {
-      console.log(`⏭️  Skipping upsert for marker ${marker.id} - created locally, not yet synced`);
+      dbLogger.info(`⏭️  Skipping upsert for marker ${marker.id} - created locally, not yet synced`);
       return;
     }
     
     // Otherwise, it's a marker we voted on - only update if cloud has newer data
     if (marker.lastVerified > (await db.getFirstAsync<{ last_verified: number }>('SELECT last_verified FROM markers WHERE id = ?', [marker.id]))?.last_verified!) {
-      console.log(`🔄 Updating marker ${marker.id} with newer cloud data (keeping unsynced flag for local vote)`);
+      dbLogger.info(`🔄 Updating marker ${marker.id} with newer cloud data (keeping unsynced flag for local vote)`);
       // Update but keep synced_to_cloud = 0 so our vote still gets pushed
       await db.runAsync(
         `UPDATE markers SET 
@@ -552,10 +553,10 @@ export async function upsertMarker(marker: Marker): Promise<void> {
          WHERE id = ?`,
         [marker.agrees, marker.disagrees, marker.confidenceScore, marker.lastVerified, marker.id]
       );
-      console.log(`✅ Updated marker ${marker.id} from cloud (local vote will still sync)`);
+      dbLogger.info(`✅ Updated marker ${marker.id} from cloud (local vote will still sync)`);
       return;
     } else {
-      console.log(`⏭️  Skipping upsert for marker ${marker.id} - local version is newer`);
+      dbLogger.info(`⏭️  Skipping upsert for marker ${marker.id} - local version is newer`);
       return;
     }
   }
@@ -584,7 +585,7 @@ export async function upsertMarker(marker: Marker): Promise<void> {
     ]
   );
 
-  console.log(`✅ Marker upserted from cloud: ${marker.id} (agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
+  dbLogger.info(`✅ Marker upserted from cloud: ${marker.id} (agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
 }
 
 // ============================================================================
@@ -616,7 +617,7 @@ export async function createSOSMarker(sosMarker: {
     ]
   );
 
-  console.log('✅ SOS marker created:', sosMarker.id);
+  dbLogger.info('✅ SOS marker created:', sosMarker.id);
 }
 
 /**
@@ -662,8 +663,8 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
     [completedAt, expiresAt, sosId]
   );
 
-  console.log('✅ SOS marker completed:', sosId, '- rows affected:', result.changes);
-  console.log('🔄 Marked as unsynced, will push to cloud on next sync');
+  dbLogger.info('✅ SOS marker completed:', sosId, '- rows affected:', result.changes);
+  dbLogger.info('🔄 Marked as unsynced, will push to cloud on next sync');
 }
 
 /**
@@ -675,7 +676,7 @@ export async function deleteMarker(markerId: string): Promise<void> {
   await db.runAsync('DELETE FROM markers WHERE id = ?', [markerId]);
   await db.runAsync('DELETE FROM votes WHERE marker_id = ?', [markerId]);
 
-  console.log('✅ Marker deleted from local DB:', markerId);
+  dbLogger.info('✅ Marker deleted from local DB:', markerId);
 }
 
 /**
@@ -687,7 +688,7 @@ export async function deleteSOSMarker(sosId: string): Promise<void> {
   await db.runAsync('DELETE FROM sos_markers WHERE id = ?', [sosId]);
   await db.runAsync('DELETE FROM sos_responses WHERE sos_marker_id = ?', [sosId]);
 
-  console.log('✅ SOS marker deleted:', sosId);
+  dbLogger.info('✅ SOS marker deleted:', sosId);
 }
 
 /**
@@ -762,7 +763,7 @@ export async function addSOSResponse(response: {
     ]
   );
 
-  console.log('✅ SOS response added:', response.sosMarkerId);
+  dbLogger.info('✅ SOS response added:', response.sosMarkerId);
 }
 
 /**
@@ -819,7 +820,7 @@ export async function cancelSOSResponse(
     [sosMarkerId, responderDeviceId]
   );
 
-  console.log('✅ SOS response cancelled:', sosMarkerId);
+  dbLogger.info('✅ SOS response cancelled:', sosMarkerId);
 }
 
 /**

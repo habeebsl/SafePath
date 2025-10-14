@@ -30,6 +30,7 @@ import {
 } from '@/utils/database';
 import { getDistance } from 'geolib';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { uiLogger } from '@/utils/logger';
 
 interface SOSContextType {
   activeSOSMarkers: SOSMarker[];
@@ -81,10 +82,10 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
         const completedCount = await deleteCompletedSOSMarkers();
         
         if (completedCount > 0) {
-          console.log('🧹 Cleaned up', completedCount, 'completed SOS markers from local DB');
+          uiLogger.info('🧹 Cleaned up', completedCount, 'completed SOS markers from local DB');
         }
       } catch (error) {
-        console.error('Error cleaning up markers:', error);
+        uiLogger.error('Error cleaning up markers:', error);
       }
     };
     
@@ -101,12 +102,12 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
         const { getAllSOSMarkersDebug } = await import('@/utils/database');
         const allMarkers = await getAllSOSMarkersDebug();
         if (allMarkers.length > 0) {
-          console.log('🔍 ALL SOS in local DB:', allMarkers.length,
+          uiLogger.info('🔍 ALL SOS in local DB:', allMarkers.length,
             allMarkers.map((m: any) => `${m.id.substring(0, 8)}:${m.status}`).join(', '));
         }
         
         const markers = await getActiveSOSMarkers();
-        console.log('🔄 Refreshing SOS - found active markers:', markers.length, 
+        uiLogger.info('🔄 Refreshing SOS - found active markers:', markers.length, 
           markers.map(m => `${m.id.substring(0, 8)}:${m.status}`).join(', '));
         setActiveSOSMarkers(markers.map(m => ({
           id: m.id,
@@ -121,7 +122,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
         })));
 
         const myRequest = await getUserActiveSOSRequest(deviceId);
-        console.log('🔄 My active SOS:', myRequest ? myRequest.id : 'none');
+        uiLogger.info('🔄 My active SOS:', myRequest ? myRequest.id : 'none');
         setMyActiveSOSRequest(myRequest ? {
           id: myRequest.id,
           latitude: myRequest.latitude,
@@ -149,7 +150,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
           syncedToCloud: myResponse.synced_to_cloud === 1
         } : null);
       } catch (error) {
-        console.error('Error refreshing SOS data:', error);
+        uiLogger.error('Error refreshing SOS data:', error);
       }
     };
     
@@ -214,7 +215,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
         }
 
       } catch (error) {
-        console.error('Error updating responder location:', error);
+        uiLogger.error('Error updating responder location:', error);
       }
     }, 10000); // Update every 10 seconds
 
@@ -252,7 +253,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
           
           // Only log if we haven't notified about this SOS before
           if (!notifiedSOSIds.has(sosMarker.id)) {
-            console.log('🚨 New nearby SOS detected:', sosMarker.id.substring(0, 12), `${Math.round(distance)}m away`);
+            uiLogger.info('🚨 New nearby SOS detected:', sosMarker.id.substring(0, 12), `${Math.round(distance)}m away`);
             newNotifiedIds.add(sosMarker.id);
             hasNotifiedChanges = true;
           }
@@ -271,14 +272,14 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
         if (!activeIds.has(id)) {
           newNotifiedIds.delete(id);
           hasNotifiedChanges = true;
-          console.log('🧹 Clearing notification history for inactive SOS:', id.substring(0, 12));
+          uiLogger.info('🧹 Clearing notification history for inactive SOS:', id.substring(0, 12));
         }
       }
       for (const id of dismissedSOSIds) {
         if (!activeIds.has(id)) {
           newDismissedIds.delete(id);
           hasDismissedChanges = true;
-          console.log('🧹 Clearing dismissed history for inactive SOS:', id.substring(0, 12));
+          uiLogger.info('🧹 Clearing dismissed history for inactive SOS:', id.substring(0, 12));
         }
       }
 
@@ -304,7 +305,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     try {
       // Get all active SOS markers
       const markers = await getActiveSOSMarkers();
-      console.log('🔄 Refreshing SOS - found markers:', markers.length);
+      uiLogger.info('🔄 Refreshing SOS - found markers:', markers.length);
       setActiveSOSMarkers(markers.map(m => ({
         id: m.id,
         latitude: m.latitude,
@@ -319,7 +320,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
 
       // Get my active SOS request
       const myRequest = await getUserActiveSOSRequest(deviceId);
-      console.log('🔄 My active SOS:', myRequest ? myRequest.id : 'none');
+      uiLogger.info('🔄 My active SOS:', myRequest ? myRequest.id : 'none');
       setMyActiveSOSRequest(myRequest ? {
         id: myRequest.id,
         latitude: myRequest.latitude,
@@ -349,7 +350,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       } : null);
 
     } catch (error) {
-      console.error('Error refreshing SOS data:', error);
+      uiLogger.error('Error refreshing SOS data:', error);
     }
   }, [deviceId]);
 
@@ -419,7 +420,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       
       await refreshSOS();
       
-      console.log('✅ SOS request created:', sosId);
+      uiLogger.info('✅ SOS request created:', sosId);
       
       Alert.alert(
         'SOS Sent',
@@ -427,7 +428,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       );
 
     } catch (error) {
-      console.error('Error creating SOS request:', error);
+      uiLogger.error('Error creating SOS request:', error);
       Alert.alert('Error', 'Failed to create SOS request. Please try again.');
     } finally {
       setIsCreatingSOS(false);
@@ -442,7 +443,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       await dbCompleteSOSMarker(sosId);
       await refreshSOS();
       
-      console.log('✅ SOS request completed:', sosId);
+      uiLogger.info('✅ SOS request completed:', sosId);
       
       Alert.alert(
         'SOS Completed',
@@ -450,7 +451,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       );
 
     } catch (error) {
-      console.error('Error completing SOS request:', error);
+      uiLogger.error('Error completing SOS request:', error);
       Alert.alert('Error', 'Failed to complete SOS request');
     }
   }, []);
@@ -517,10 +518,10 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
 
       await refreshSOS();
 
-      console.log('✅ Started responding to SOS:', sosId);
+      uiLogger.info('✅ Started responding to SOS:', sosId);
 
     } catch (error) {
-      console.error('Error responding to SOS:', error);
+      uiLogger.error('Error responding to SOS:', error);
       Alert.alert('Error', 'Failed to respond to SOS request');
     }
   }, [location, deviceId, activeSOSMarkers, myActiveSOSResponse]);
@@ -535,10 +536,10 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       await dbCancelSOSResponse(sosId, deviceId);
       await refreshSOS();
       
-      console.log('✅ Cancelled SOS response:', sosId);
+      uiLogger.info('✅ Cancelled SOS response:', sosId);
 
     } catch (error) {
-      console.error('Error cancelling SOS response:', error);
+      uiLogger.error('Error cancelling SOS response:', error);
       Alert.alert('Error', 'Failed to cancel response');
     }
   }, [deviceId]);
@@ -567,7 +568,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
    * Handle responder arrival
    */
   const handleArrival = useCallback(async (sosId: string) => {
-    console.log('🎉 Responder arrived at SOS location:', sosId);
+    uiLogger.info('🎉 Responder arrived at SOS location:', sosId);
     
     Alert.alert(
       'Arrived',
@@ -585,12 +586,12 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     for (const sosMarker of activeSOSMarkers) {
       // Clean up completed markers that have expired
       if (sosMarker.status === 'completed' && sosMarker.expiresAt && sosMarker.expiresAt <= now) {
-        console.log('🗑️ Cleaning up expired completed SOS:', sosMarker.id);
+        uiLogger.info('🗑️ Cleaning up expired completed SOS:', sosMarker.id);
         await deleteSOSMarker(sosMarker.id);
       }
       // Clean up active markers that are more than 24 hours old (stale)
       else if (sosMarker.status === 'active' && sosMarker.createdAt < twentyFourHoursAgo) {
-        console.log('🗑️ Cleaning up stale active SOS:', sosMarker.id);
+        uiLogger.info('🗑️ Cleaning up stale active SOS:', sosMarker.id);
         await deleteSOSMarker(sosMarker.id);
       }
     }
@@ -603,7 +604,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
    * Dismiss an SOS notification
    */
   const dismissSOSNotification = useCallback((sosId: string) => {
-    console.log('🔕 User dismissed SOS notification:', sosId.substring(0, 12));
+    uiLogger.info('🔕 User dismissed SOS notification:', sosId.substring(0, 12));
     setDismissedSOSIds(prev => new Set([...prev, sosId]));
   }, []);
 

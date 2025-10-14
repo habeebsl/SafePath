@@ -19,6 +19,7 @@ import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { uiLogger } from '@/utils/logger';
 
 // Dynamically import Leaflet to avoid SSR issues
 let L: any;
@@ -55,7 +56,7 @@ function MapEventHandler({ onContextMenu }: { onContextMenu: (e: any) => void })
 }
 
 export default function MapComponent() {
-  console.log('🗺️ MapComponent rendering (web version)...');
+  uiLogger.info('🗺️ MapComponent rendering (web version)...');
   
   const { location, isTracking, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
@@ -90,7 +91,7 @@ export default function MapComponent() {
 
   // Detect client-side rendering
   useEffect(() => {
-    console.log('🌍 Checking if client-side...', typeof window !== 'undefined');
+    uiLogger.info('🌍 Checking if client-side...', typeof window !== 'undefined');
     setIsClient(typeof window !== 'undefined');
   }, []);
 
@@ -105,7 +106,7 @@ export default function MapComponent() {
   // Center map on user location when we first get GPS fix
   useEffect(() => {
     if (initialLocationSet && mapReady && mapRef.current && location) {
-      console.log('📍 Auto-centering map on first GPS fix');
+      uiLogger.info('📍 Auto-centering map on first GPS fix');
       mapRef.current.setView(
         [location.coords.latitude, location.coords.longitude],
         17,
@@ -239,11 +240,11 @@ export default function MapComponent() {
 
   // Refresh all markers on map
   const refreshMapMarkers = () => {
-    console.log('Refreshing markers on map: ' + markers.length);
+    uiLogger.info('Refreshing markers on map: ' + markers.length);
     clearAllMarkers();
     setTimeout(() => {
       markers.forEach(marker => addMarkerToMap(marker));
-      console.log('Added markers on map: ' + markers.length);
+      uiLogger.info('Added markers on map: ' + markers.length);
     }, 100); // Small delay to ensure clear completes
   };
 
@@ -257,7 +258,7 @@ export default function MapComponent() {
         onSuccess: refreshMapMarkers,
       });
     } catch (error) {
-      console.error('❌ Manual sync failed:', error);
+      uiLogger.error('❌ Manual sync failed:', error);
       Alert.alert('Sync Failed', 'Check your internet connection and try again.');
     } finally {
       setRefreshing(false);
@@ -295,12 +296,12 @@ export default function MapComponent() {
   // Update SOS markers on map when they change
   useEffect(() => {
     if (mapReady) {
-      console.log('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
+      uiLogger.info('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
       // Clear existing SOS markers
       clearSOSMarkers();
       // Re-add all SOS markers
       activeSOSMarkers.forEach(sosMarker => {
-        console.log('➕ Adding SOS marker to map:', sosMarker.id);
+        uiLogger.info('➕ Adding SOS marker to map:', sosMarker.id);
         addSOSMarkerToMap(sosMarker);
       });
     }
@@ -346,7 +347,7 @@ export default function MapComponent() {
         maxZoom: 16
       });
       
-      console.log('🗺️ Trail rendered on map');
+      uiLogger.info('🗺️ Trail rendered on map');
     } else {
       // Clear trail
       if (trailPolylineRef.current) {
@@ -357,7 +358,7 @@ export default function MapComponent() {
         mapRef.current.removeLayer(userMarkerOnTrailRef.current);
         userMarkerOnTrailRef.current = null;
       }
-      console.log('🗺️ Trail cleared from map');
+      uiLogger.info('🗺️ Trail cleared from map');
     }
   }, [activeTrail, mapReady]);
 
@@ -406,7 +407,7 @@ export default function MapComponent() {
 
   // Show loading state during SSR or before client hydration
   if (!isClient) {
-    console.log('⏳ Still loading client side...');
+    uiLogger.info('⏳ Still loading client side...');
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -417,9 +418,9 @@ export default function MapComponent() {
     );
   }
 
-  console.log('✅ Client ready, rendering map with Leaflet:', !!MapContainer);
-  console.log('📍 Initial center:', initialCenter, 'Zoom:', initialZoom);
-  console.log('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
+  uiLogger.info('✅ Client ready, rendering map with Leaflet:', !!MapContainer);
+  uiLogger.info('📍 Initial center:', initialCenter, 'Zoom:', initialZoom);
+  uiLogger.info('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
 
   return (
     <View style={styles.container}>
@@ -434,7 +435,7 @@ export default function MapComponent() {
             if (map && !mapReady) {
               mapRef.current = map;
               setMapReady(true);
-              console.log('🗺️ Map instance created');
+              uiLogger.info('🗺️ Map instance created');
             }
           }}
         >

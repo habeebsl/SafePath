@@ -1,6 +1,7 @@
 import { Marker } from '@/types/marker';
 import { addVote, addMarker as dbAddMarker, getAllMarkers, getDeviceId, getUserVote, initDatabase, updateMarkerVotes } from '@/utils/database';
-import { manualSync, startSyncService, stopSyncService } from '@/utils/sync';
+import { uiLogger } from '@/utils/logger';
+import { manualSync, setOnSyncComplete, startSyncService, stopSyncService } from '@/utils/sync';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 interface DatabaseContextType {
@@ -27,19 +28,19 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
     const initialize = async () => {
       try {
-        console.log('🔧 Initializing database...');
+        uiLogger.info('🔧 Initializing database...');
         await initDatabase();
         
         const id = await getDeviceId();
         if (mounted) {
           setDeviceId(id);
-          console.log('📱 Device ID:', id);
+          uiLogger.info('📱 Device ID:', id);
         }
 
         const allMarkers = await getAllMarkers();
         if (mounted) {
           setMarkers(allMarkers);
-          console.log(`📍 Loaded ${allMarkers.length} markers from database`);
+          uiLogger.info(`📍 Loaded ${allMarkers.length} markers from database`);
         }
 
         // Start sync service
@@ -47,10 +48,10 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
         if (mounted) {
           setIsReady(true);
-          console.log('✅ Database ready');
+          uiLogger.info('✅ Database ready');
         }
       } catch (error) {
-        console.error('❌ Database initialization error:', error);
+        uiLogger.error('❌ Database initialization error:', error);
       }
     };
 
@@ -62,39 +63,59 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Register callback to refresh markers after sync completes
+  useEffect(() => {
+    const handleSyncComplete = async () => {
+      try {
+        uiLogger.debug('🔔 Sync complete - refreshing markers...');
+        const allMarkers = await getAllMarkers();
+        setMarkers(allMarkers);
+        uiLogger.info(`✅ Markers refreshed after sync: ${allMarkers.length} markers`);
+      } catch (error) {
+        uiLogger.error('❌ Error refreshing markers after sync:', error);
+      }
+    };
+
+    setOnSyncComplete(handleSyncComplete);
+
+    return () => {
+      setOnSyncComplete(null);
+    };
+  }, []);
+
   // Refresh markers from database
   const refreshMarkers = useCallback(async () => {
     try {
       const allMarkers = await getAllMarkers();
-      console.log(`🔄 Refreshing markers - fetched ${allMarkers.length} from DB`);
+      uiLogger.info(`🔄 Refreshing markers - fetched ${allMarkers.length} from DB`);
       
       // Log first marker's vote counts for debugging
       if (allMarkers.length > 0) {
         const firstMarker = allMarkers[0];
-        console.log(`� Sample marker ${firstMarker.id.substring(0, 8)}: agrees=${firstMarker.agrees}, disagrees=${firstMarker.disagrees}`);
+        uiLogger.info(`� Sample marker ${firstMarker.id.substring(0, 8)}: agrees=${firstMarker.agrees}, disagrees=${firstMarker.disagrees}`);
       }
       
       setMarkers(allMarkers);
-      console.log(`✅ Markers state updated`);
+      uiLogger.info(`✅ Markers state updated`);
     } catch (error) {
-      console.error('❌ Error refreshing markers:', error);
+      uiLogger.error('❌ Error refreshing markers:', error);
     }
   }, []);
 
   // Add a new marker
   const addMarker = useCallback(async (marker: Marker) => {
     if (!isReady) {
-      console.warn('⚠️ Database not ready yet');
+      uiLogger.warn('⚠️ Database not ready yet');
       throw new Error('Database not ready. Please wait a moment and try again.');
     }
 
     try {
-      console.log('📝 Adding marker to database...');
+      uiLogger.info('📝 Adding marker to database...');
       await dbAddMarker(marker);
       await refreshMarkers();
-      console.log('✅ Marker added successfully');
+      uiLogger.info('✅ Marker added successfully');
     } catch (error) {
-      console.error('❌ Error adding marker:', error);
+      uiLogger.error('❌ Error adding marker:', error);
       throw error;
     }
   }, [refreshMarkers, isReady]);
@@ -131,18 +152,18 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const newConfidenceScore = Math.round((newAgrees / totalVotes) * 100);
 
       // Update database
-      console.log(`📝 Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
+      uiLogger.info(`📝 Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
       await updateMarkerVotes(markerId, newAgrees, newDisagrees, newConfidenceScore);
       await addVote(markerId, deviceId, vote);
 
-      console.log('🔄 Vote saved to DB, now refreshing markers...');
+      uiLogger.info('🔄 Vote saved to DB, now refreshing markers...');
       
       // Refresh markers to update UI
       await refreshMarkers();
 
-      console.log('✅ Vote recorded successfully');
+      uiLogger.info('✅ Vote recorded successfully');
     } catch (error) {
-      console.error('❌ Error voting on marker:', error);
+      uiLogger.error('❌ Error voting on marker:', error);
       throw error;
     }
   }, [deviceId, refreshMarkers, isReady]);
@@ -154,7 +175,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     try {
       return await getUserVote(markerId, deviceId);
     } catch (error) {
-      console.error('❌ Error getting user vote:', error);
+      uiLogger.error('❌ Error getting user vote:', error);
       return null;
     }
   }, [deviceId]);
@@ -164,9 +185,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     try {
       await manualSync();
       await refreshMarkers();
-      console.log('✅ Manual sync completed');
+      uiLogger.info('✅ Manual sync completed');
     } catch (error) {
-      console.error('❌ Manual sync error:', error);
+      uiLogger.error('❌ Manual sync error:', error);
       throw error;
     }
   }, [refreshMarkers]);

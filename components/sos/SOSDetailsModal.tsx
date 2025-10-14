@@ -10,6 +10,7 @@ import { useTrail } from '@/contexts/TrailContext';
 import { SOSMarker, SOSResponse } from '@/types/sos';
 import { TrailContext } from '@/types/trail';
 import React, { useEffect, useState } from 'react';
+import { uiLogger } from '@/utils/logger';
 import {
   ActivityIndicator,
   Modal,
@@ -57,7 +58,7 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
       const data = await getSOSResponsesForMarker(sosMarker.id);
       setResponses(data);
     } catch (error) {
-      console.error('Error loading responses:', error);
+      uiLogger.error('Error loading responses:', error);
     }
   };
 
@@ -83,7 +84,7 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
               await completeSOSRequest(sosMarker.id);
               onClose();
             } catch (error) {
-              console.error('Error completing SOS:', error);
+              uiLogger.error('Error completing SOS:', error);
             } finally {
               setIsLoading(false);
             }
@@ -120,7 +121,7 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
       
       onClose();
     } catch (error: any) {
-      console.error('Error responding to SOS:', error);
+      uiLogger.error('Error responding to SOS:', error);
       Alert.alert('Error', error.message || 'Failed to respond to SOS');
     } finally {
       setIsResponding(false);
@@ -142,7 +143,7 @@ export function SOSDetailsModal({ visible, sosMarker, onClose }: SOSDetailsModal
               await cancelSOSResponse(sosMarker.id);
               onClose();
             } catch (error) {
-              console.error('Error cancelling response:', error);
+              uiLogger.error('Error cancelling response:', error);
             } finally {
               setIsLoading(false);
             }

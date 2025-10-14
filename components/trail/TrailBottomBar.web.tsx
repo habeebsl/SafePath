@@ -11,11 +11,12 @@ import { TRAIL_STYLES } from '@/types/trail';
 import { formatDistance } from '@/utils/routing';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { uiLogger } from '@/utils/logger';
 
 export function TrailBottomBar() {
   const { activeTrail, isLoading, cancelTrail } = useTrail();
   
-  console.log('🌐 TrailBottomBar.web.tsx rendering - activeTrail:', !!activeTrail, 'isLoading:', isLoading);
+  uiLogger.info('🌐 TrailBottomBar.web.tsx rendering - activeTrail:', !!activeTrail, 'isLoading:', isLoading);
   
   const screenWidth = Dimensions.get('window').width;
   const isSmallScreen = screenWidth < 600;

@@ -2,6 +2,7 @@ import { useLocationTracking } from '@/hooks/useLocationTracking';
 import { getCountryFromCoordinates } from '@/utils/region-helpers';
 import * as Location from 'expo-location';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { uiLogger } from '@/utils/logger';
 
 interface LocationContextType {
   location: Location.LocationObject | null;
@@ -38,15 +39,15 @@ export function LocationProvider({ children }: LocationProviderProps) {
   useEffect(() => {
     if (locationData.location) {
       const { latitude, longitude } = locationData.location.coords;
-      console.log('📍 Location detected:', latitude, longitude);
+      uiLogger.info('📍 Location detected:', latitude, longitude);
       
       getCountryFromCoordinates(latitude, longitude).then(country => {
-        console.log('🌍 Country detected:', country || 'Unknown');
+        uiLogger.info('🌍 Country detected:', country || 'Unknown');
         setCurrentCountry(country);
         setIsLocating(false);
       });
     } else {
-      console.log('⏳ Waiting for location...');
+      uiLogger.info('⏳ Waiting for location...');
     }
   }, [locationData.location]);
 

@@ -9,6 +9,7 @@ import { getLocationDisplayText } from '@/utils/region-helpers';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { uiLogger } from '@/utils/logger';
 
 interface MapOverlaysProps {
   isTracking: boolean;
@@ -33,14 +34,14 @@ export function MapOverlays({
   currentCountry,
   isLocating,
 }: MapOverlaysProps) {
-  console.log('🌐 MapOverlays.web.tsx rendering - location:', !!location, 'activeTrail:', !!activeTrail);
-  console.log('🏷️ Region badge - currentCountry:', currentCountry, 'isLocating:', isLocating);
+  uiLogger.info('🌐 MapOverlays.web.tsx rendering - location:', !!location, 'activeTrail:', !!activeTrail);
+  uiLogger.info('🏷️ Region badge - currentCountry:', currentCountry, 'isLocating:', isLocating);
   
   const screenWidth = Dimensions.get('window').width;
   const isSmallScreen = screenWidth < 600;
   const isDesktop = screenWidth >= 768;
   const regionText = getLocationDisplayText(currentCountry, isLocating);
-  console.log('📝 Region text:', regionText);
+  uiLogger.info('📝 Region text:', regionText);
   
   return (
     <>

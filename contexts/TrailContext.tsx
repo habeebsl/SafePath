@@ -23,6 +23,7 @@ import {
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useLocation } from './LocationContext';
+import { uiLogger } from '@/utils/logger';
 
 interface TrailContextValue {
   activeTrail: Trail | null;
@@ -118,7 +119,7 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     
     try {
-      console.log('🗺️ Creating trail to:', marker.title);
+      uiLogger.info('🗺️ Creating trail to:', marker.title);
       
       // Calculate route (online, cached, or offline)
       const route = await calculateRoute(currentLocation, destination, {
@@ -126,10 +127,10 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
         dangerZones: [] // TODO: Pass danger zones from database
       });
       
-      console.log('✅ Route calculated:', route.strategy);
-      console.log('📏 Distance:', route.distance, 'meters');
-      console.log('⏱️ Duration:', route.duration, 'seconds');
-      console.log('📍 Waypoints:', route.waypoints.length);
+      uiLogger.info('✅ Route calculated:', route.strategy);
+      uiLogger.info('📏 Distance:', route.distance, 'meters');
+      uiLogger.info('⏱️ Duration:', route.duration, 'seconds');
+      uiLogger.info('📍 Waypoints:', route.waypoints.length);
       
       // Show routing strategy to user
       if (route.strategy === RoutingStrategy.CACHED) {
@@ -164,10 +165,10 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
       };
       
       setActiveTrail(trail);
-      console.log('✅ Trail created successfully');
+      uiLogger.info('✅ Trail created successfully');
       
     } catch (error) {
-      console.error('❌ Failed to create trail:', error);
+      uiLogger.error('❌ Failed to create trail:', error);
       Alert.alert(
         'Route Error',
         'Unable to calculate route. Please try again.',
@@ -181,14 +182,14 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
   const cancelTrail = useCallback(() => {
     if (!activeTrail) return;
     
-    console.log('🚫 Canceling trail');
+    uiLogger.info('🚫 Canceling trail');
     setActiveTrail(null);
   }, [activeTrail]);
   
   const handleArrival = useCallback(() => {
     if (!activeTrail) return;
     
-    console.log('🎉 User arrived at destination!');
+    uiLogger.info('🎉 User arrived at destination!');
     
     Alert.alert(
       '✅ You have Arrived!',

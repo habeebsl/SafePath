@@ -11,6 +11,7 @@ import { Coordinates, Marker } from '@/types/marker';
 import polyline from '@mapbox/polyline';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeDestinationPoint, getDistance, getRhumbLineBearing } from 'geolib';
+import { logger } from '@/utils/logger';
 
 // ============================================================================
 // TYPES
@@ -66,34 +67,34 @@ export async function calculateRoute(
     dangerZones?: Marker[];
   }
 ): Promise<Route> {
-  console.log('🗺️ Calculating route from', from, 'to', to);
-  console.log('📡 Online:', context.isOnline);
+  logger.info('🗺️ Calculating route from', from, 'to', to);
+  logger.info('📡 Online:', context.isOnline);
   
   // Priority 1: Try online routing (best quality)
   if (context.isOnline && ORS_API_KEY) {
     try {
-      console.log('🌐 Attempting online routing (OpenRouteService)...');
+      logger.info('🌐 Attempting online routing (OpenRouteService)...');
       const route = await calculateRouteOnline(from, to);
-      console.log('✅ Online routing successful');
+      logger.info('✅ Online routing successful');
       
       // Cache this route for future offline use
       await cacheRoute(from, to, route);
       
       return route;
     } catch (error) {
-      console.warn('⚠️ Online routing failed:', error);
+      logger.warn('⚠️ Online routing failed:', error);
     }
   } else if (!context.isOnline) {
-    console.log('📵 Device is offline');
+    logger.info('📵 Device is offline');
   } else if (!ORS_API_KEY) {
-    console.warn('⚠️ No OpenRouteService API key configured');
+    logger.warn('⚠️ No OpenRouteService API key configured');
   }
   
   // Priority 2: Check cache (previous online calculations)
-  console.log('💾 Checking cached routes...');
+  logger.info('💾 Checking cached routes...');
   const cachedRoute = await getCachedRoute(from, to);
   if (cachedRoute) {
-    console.log('✅ Using cached route from', cachedRoute.calculatedAt);
+    logger.info('✅ Using cached route from', cachedRoute.calculatedAt);
     return {
       ...cachedRoute,
       strategy: RoutingStrategy.CACHED
@@ -101,7 +102,7 @@ export async function calculateRoute(
   }
   
   // Priority 3: Simple offline routing (fallback)
-  console.log('📍 Using simple offline routing');
+  logger.info('📍 Using simple offline routing');
   return calculateRouteOffline(from, to, context.dangerZones || []);
 }
 
@@ -139,7 +140,7 @@ async function calculateRouteOnline(
   
   const data = await response.json();
   
-  console.log('📦 OpenRouteService response:', JSON.stringify(data, null, 2));
+  logger.info('📦 OpenRouteService response:', JSON.stringify(data, null, 2));
   
   if (!data.routes || data.routes.length === 0) {
     throw new Error('No route found');
@@ -147,19 +148,19 @@ async function calculateRouteOnline(
   
   const route = data.routes[0];
   
-  console.log('🛣️ Route geometry type:', typeof route.geometry);
-  console.log('🛣️ Route geometry:', route.geometry);
+  logger.info('🛣️ Route geometry type:', typeof route.geometry);
+  logger.info('🛣️ Route geometry:', route.geometry);
   
   // Convert geometry to waypoints
   let waypoints: Coordinates[];
   
   if (typeof route.geometry === 'string') {
     // Encoded polyline format - decode it
-    console.log('🔓 Decoding polyline...');
+    logger.info('🔓 Decoding polyline...');
     const decoded = polyline.decode(route.geometry);
     // polyline.decode returns [[lat, lon], [lat, lon], ...]
     waypoints = decoded.map(([lat, lon]: [number, number]) => ({ lat, lon }));
-    console.log(`✅ Decoded ${waypoints.length} waypoints from polyline`);
+    logger.info(`✅ Decoded ${waypoints.length} waypoints from polyline`);
   } else if (route.geometry.coordinates && Array.isArray(route.geometry.coordinates)) {
     // GeoJSON format with coordinates array (lon, lat order)
     waypoints = route.geometry.coordinates.map(
@@ -189,17 +190,17 @@ async function calculateRouteOnline(
   
   // If start point was snapped to road (>5m away), add actual user position first
   if (startDistance > 5) {
-    console.log(`📍 Adding exact start point (${startDistance.toFixed(0)}m from road)`);
+    logger.info(`📍 Adding exact start point (${startDistance.toFixed(0)}m from road)`);
     waypoints.unshift({ lat: from.lat, lon: from.lon });
   }
   
   // If end point was snapped to road (>5m away), add actual destination last
   if (endDistance > 5) {
-    console.log(`📍 Adding exact destination point (${endDistance.toFixed(0)}m from road)`);
+    logger.info(`📍 Adding exact destination point (${endDistance.toFixed(0)}m from road)`);
     waypoints.push({ lat: to.lat, lon: to.lon });
   }
   
-  console.log(`🗺️ Final route has ${waypoints.length} waypoints (start → road → destination)`);
+  logger.info(`🗺️ Final route has ${waypoints.length} waypoints (start → road → destination)`);
   
   // Extract turn-by-turn instructions if available
   const instructions: string[] = [];
@@ -230,8 +231,8 @@ function calculateRouteOffline(
   to: Coordinates,
   dangerZones: Marker[]
 ): Route {
-  console.log('🧭 Calculating offline route...');
-  console.log('🚫 Avoiding', dangerZones.length, 'danger zones');
+  logger.info('🧭 Calculating offline route...');
+  logger.info('🚫 Avoiding', dangerZones.length, 'danger zones');
   
   // Start with straight line
   let waypoints: Coordinates[] = [from, to];
@@ -241,7 +242,7 @@ function calculateRouteOffline(
     const dangerLocation = { lat: danger.latitude, lon: danger.longitude };
     
     if (lineIntersectsCircle(from, to, dangerLocation, DANGER_ZONE_BUFFER)) {
-      console.log('⚠️ Route crosses danger zone:', danger.title);
+      logger.info('⚠️ Route crosses danger zone:', danger.title);
       
       // Calculate avoidance waypoint
       const avoidancePoint = calculateAvoidancePoint(from, to, dangerLocation);
@@ -249,7 +250,7 @@ function calculateRouteOffline(
       // Insert avoidance point in route
       waypoints = [from, avoidancePoint, to];
       
-      console.log('✓ Rerouting around danger zone');
+      logger.info('✓ Rerouting around danger zone');
       break;  // For now, only avoid first intersection
     }
   }
@@ -288,9 +289,9 @@ async function cacheRoute(
     };
     
     await AsyncStorage.setItem(cacheKey, JSON.stringify(cacheData));
-    console.log('💾 Route cached:', cacheKey);
+    logger.info('💾 Route cached:', cacheKey);
   } catch (error) {
-    console.error('Failed to cache route:', error);
+    logger.error('Failed to cache route:', error);
     // Don't throw - caching failure shouldn't break routing
   }
 }
@@ -309,7 +310,7 @@ async function getCachedRoute(
       
       // Check if cache is still valid
       if (isCacheValid(cacheData)) {
-        console.log('✓ Found exact cached route');
+        logger.info('✓ Found exact cached route');
         return cacheData.route;
       }
     }
@@ -333,15 +334,15 @@ async function getCachedRoute(
         toDistance < CACHE_DISTANCE_THRESHOLD &&
         isCacheValid(cacheData)
       ) {
-        console.log('✓ Found nearby cached route');
+        logger.info('✓ Found nearby cached route');
         return cacheData.route;
       }
     }
     
-    console.log('ℹ️ No cached route found');
+    logger.info('ℹ️ No cached route found');
     return null;
   } catch (error) {
-    console.error('Failed to get cached route:', error);
+    logger.error('Failed to get cached route:', error);
     return null;
   }
 }
@@ -364,9 +365,9 @@ export async function clearRouteCache(): Promise<void> {
     const allKeys = await AsyncStorage.getAllKeys();
     const routeKeys = allKeys.filter(key => key.startsWith(CACHE_KEY_PREFIX));
     await AsyncStorage.multiRemove(routeKeys);
-    console.log('🗑️ Route cache cleared');
+    logger.info('🗑️ Route cache cleared');
   } catch (error) {
-    console.error('Failed to clear route cache:', error);
+    logger.error('Failed to clear route cache:', error);
   }
 }
 

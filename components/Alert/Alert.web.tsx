@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { uiLogger } from '@/utils/logger';
 
 interface AlertButton {
   text: string;
@@ -34,10 +35,10 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
 
   // Register the controller on mount
   React.useEffect(() => {
-    console.log('🚀 AlertProvider mounted, registering controller');
+    uiLogger.info('🚀 AlertProvider mounted, registering controller');
     alertController = {
       show: (title: string, message?: string, buttons?: AlertButton[]) => {
-        console.log('📢 Alert controller.show called:', { title, message, buttons });
+        uiLogger.info('📢 Alert controller.show called:', { title, message, buttons });
         setAlertState({
           visible: true,
           title,
@@ -48,7 +49,7 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
     };
 
     return () => {
-      console.log('👋 AlertProvider unmounting, clearing controller');
+      uiLogger.info('👋 AlertProvider unmounting, clearing controller');
       alertController = null;
     };
   }, []);
@@ -120,7 +121,7 @@ export const Alert = {
     if (alertController) {
       alertController.show(title, message, buttons);
     } else {
-      console.warn('⚠️ AlertProvider not mounted. Using native alert as fallback.');
+      uiLogger.warn('⚠️ AlertProvider not mounted. Using native alert as fallback.');
       window.alert(`${title}\n\n${message || ''}`);
     }
   }

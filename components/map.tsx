@@ -13,6 +13,7 @@ import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { Marker, MarkerType } from '@/types/marker';
 import { SOSMarker } from '@/types/sos';
+import { uiLogger } from '@/utils/logger';
 import { handleManualSync, handleSaveMarker } from '@/utils/map-handlers';
 import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
@@ -103,7 +104,7 @@ export default function MapComponent() {
         true;
       `;
       webViewRef.current.injectJavaScript(js);
-      console.log('🗺️ Trail rendered on map');
+      uiLogger.info('🗺️ Trail rendered on map');
     } else {
       // Clear trail
       const js = `
@@ -113,7 +114,7 @@ export default function MapComponent() {
         true;
       `;
       webViewRef.current.injectJavaScript(js);
-      console.log('🗺️ Trail cleared from map');
+      uiLogger.info('🗺️ Trail cleared from map');
     }
   }, [activeTrail, mapReady]);
 
@@ -416,7 +417,7 @@ export default function MapComponent() {
         }
       }
     } catch (e) {
-      console.error('Error parsing message from WebView:', e);
+      uiLogger.error('Error parsing message from WebView:', e);
     }
   };
 
@@ -581,11 +582,11 @@ export default function MapComponent() {
 
   // Refresh all markers on map
   const refreshMapMarkers = () => {
-    console.log('Refreshing markers on map: ' + markers.length);
+    uiLogger.info('Refreshing markers on map: ' + markers.length);
     clearAllMarkers();
     setTimeout(() => {
       markers.forEach(marker => addMarkerToMap(marker));
-      console.log('Added markers on map: ' + markers.length);
+      uiLogger.info('Added markers on map: ' + markers.length);
     }, 100); // Small delay to ensure clear completes
   };
 
@@ -614,12 +615,12 @@ export default function MapComponent() {
   // Update SOS markers on map when they change
   useEffect(() => {
     if (mapReady) {
-      console.log('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
+      uiLogger.info('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
       // Clear existing SOS markers
       clearSOSMarkers();
       // Re-add all SOS markers
       activeSOSMarkers.forEach(sosMarker => {
-        console.log('➕ Adding SOS marker to map:', sosMarker.id);
+        uiLogger.info('➕ Adding SOS marker to map:', sosMarker.id);
         addSOSMarkerToMap(sosMarker);
       });
     }
@@ -637,7 +638,7 @@ export default function MapComponent() {
         onSuccess: refreshMapMarkers,
       });
     } catch (error) {
-      console.error('❌ Manual sync failed:', error);
+      uiLogger.error('❌ Manual sync failed:', error);
       alert('Sync failed. Check your internet connection.');
     } finally {
       setRefreshing(false);

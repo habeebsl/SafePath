@@ -1,3 +1,5 @@
+import { logger } from '@/utils/logger';
+
 /**
  * Region and country detection utilities
  */
@@ -30,7 +32,7 @@ export async function getCountryFromCoordinates(
     const data = await response.json();
     return data.address?.country || null;
   } catch (error) {
-    console.error('Error getting country:', error);
+    logger.error('Error getting country:', error);
     return null;
   }
 }

@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { logger } from '@/utils/logger';
 
 const DEVICE_ID_KEY = 'safepath_device_id';
 
@@ -20,7 +21,7 @@ export async function getDeviceId(): Promise<string> {
     
     return deviceId;
   } catch (error) {
-    console.error('Error getting device ID:', error);
+    logger.error('Error getting device ID:', error);
     // Fallback to session ID
     return generateDeviceId();
   }
@@ -44,6 +45,6 @@ export async function resetDeviceId(): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(DEVICE_ID_KEY);
   } catch (error) {
-    console.error('Error resetting device ID:', error);
+    logger.error('Error resetting device ID:', error);
   }
 }

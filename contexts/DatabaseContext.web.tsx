@@ -14,6 +14,7 @@ import {
   updateMarkerVotes
 } from '@/utils/database';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { uiLogger } from '@/utils/logger';
 
 interface DatabaseContextType {
   isReady: boolean;
@@ -39,27 +40,27 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
     const initialize = async () => {
       try {
-        console.log('🔧 [Web] Initializing database...');
+        uiLogger.info('🔧 [Web] Initializing database...');
         await initDatabase();
         
         const id = await getDeviceId();
         if (mounted) {
           setDeviceId(id);
-          console.log('📱 [Web] Device ID:', id);
+          uiLogger.info('📱 [Web] Device ID:', id);
         }
 
         const allMarkers = await getAllMarkers();
         if (mounted) {
           setMarkers(allMarkers);
-          console.log(`📍 [Web] Loaded ${allMarkers.length} markers from Supabase`);
+          uiLogger.info(`📍 [Web] Loaded ${allMarkers.length} markers from Supabase`);
         }
 
         if (mounted) {
           setIsReady(true);
-          console.log('✅ [Web] Database ready');
+          uiLogger.info('✅ [Web] Database ready');
         }
       } catch (error) {
-        console.error('❌ [Web] Database initialization error:', error);
+        uiLogger.error('❌ [Web] Database initialization error:', error);
       }
     };
 
@@ -75,9 +76,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     try {
       const allMarkers = await getAllMarkers();
       setMarkers(allMarkers);
-      console.log(`🔄 [Web] Refreshed ${allMarkers.length} markers`);
+      uiLogger.info(`🔄 [Web] Refreshed ${allMarkers.length} markers`);
     } catch (error) {
-      console.error('❌ [Web] Error refreshing markers:', error);
+      uiLogger.error('❌ [Web] Error refreshing markers:', error);
     }
   }, []);
 
@@ -86,9 +87,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     try {
       await dbAddMarker(marker);
       await refreshMarkers();
-      console.log('✅ [Web] Marker added:', marker.id);
+      uiLogger.info('✅ [Web] Marker added:', marker.id);
     } catch (error) {
-      console.error('❌ [Web] Error adding marker:', error);
+      uiLogger.error('❌ [Web] Error adding marker:', error);
       throw error;
     }
   }, [refreshMarkers]);
@@ -126,14 +127,14 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const newConfidenceScore = Math.round((newAgrees / totalVotes) * 100);
 
       // Update database
-      console.log(`📝 [Web] Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
+      uiLogger.info(`📝 [Web] Updating marker ${markerId}: agrees=${newAgrees}, disagrees=${newDisagrees} (was agrees=${marker.agrees}, disagrees=${marker.disagrees})`);
       await updateMarkerVotes(markerId, newAgrees, newDisagrees, newConfidenceScore);
       await addVote(markerId, deviceId, vote);
       await refreshMarkers();
 
-      console.log(`✅ [Web] Voted ${vote} on marker ${markerId}`);
+      uiLogger.info(`✅ [Web] Voted ${vote} on marker ${markerId}`);
     } catch (error) {
-      console.error('❌ [Web] Error voting on marker:', error);
+      uiLogger.error('❌ [Web] Error voting on marker:', error);
       throw error;
     }
   }, [deviceId, refreshMarkers]);
@@ -146,14 +147,14 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const vote = await getUserVote(markerId, deviceId);
       return vote;
     } catch (error) {
-      console.error('❌ [Web] Error getting user vote:', error);
+      uiLogger.error('❌ [Web] Error getting user vote:', error);
       return null;
     }
   }, [deviceId]);
 
   // Trigger sync (no-op on web since we use Supabase directly)
   const triggerSync = useCallback(async () => {
-    console.log('🔄 [Web] Manual sync triggered (refreshing markers)');
+    uiLogger.info('🔄 [Web] Manual sync triggered (refreshing markers)');
     await refreshMarkers();
   }, [refreshMarkers]);
 

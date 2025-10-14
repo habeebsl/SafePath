@@ -1,4 +1,5 @@
 import { Marker, MarkerType } from '@/types/marker';
+import { syncLogger } from '@/utils/logger';
 import NetInfo from '@react-native-community/netinfo';
 import {
   deleteMarker,
@@ -20,6 +21,9 @@ import { isSupabaseConfigured, supabase, SupabaseMarker, SupabaseSOSMarker, Supa
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let isCurrentlySyncing = false;
+
+// Callback to notify when sync completes (for UI refresh)
+let onSyncCompleteCallback: (() => void) | null = null;
 
 // Distance threshold for considering markers as duplicates (in meters)
 const DUPLICATE_DISTANCE_THRESHOLD = 50;
@@ -77,16 +81,24 @@ async function findSimilarMarkerInCloud(
 
       // If within threshold distance, consider it a duplicate
       if (distance <= DUPLICATE_DISTANCE_THRESHOLD) {
-        console.log(`🔍 Found similar marker within ${distance.toFixed(0)}m:`, cloudMarker.id);
+        syncLogger.info(`🔍 Found similar marker within ${distance.toFixed(0)}m:`, cloudMarker.id);
         return cloudMarker;
       }
     }
 
     return null;
   } catch (error) {
-    console.error('Error checking for similar markers:', error);
+    syncLogger.error('Error checking for similar markers:', error);
     return null;
   }
+}
+
+/**
+ * Register a callback to be called when sync completes
+ * Used by DatabaseContext to refresh UI after background sync
+ */
+export function setOnSyncComplete(callback: (() => void) | null): void {
+  onSyncCompleteCallback = callback;
 }
 
 /**
@@ -95,19 +107,19 @@ async function findSimilarMarkerInCloud(
  */
 export function startSyncService(): void {
   if (!isSupabaseConfigured) {
-    console.log('📡 Sync service disabled - Supabase not configured');
+    syncLogger.info('📡 Sync service disabled - Supabase not configured');
     return;
   }
 
-  console.log('📡 Starting sync service...');
+  syncLogger.info('📡 Starting sync service...');
 
   // Monitor network connectivity
   NetInfo.addEventListener(state => {
     if (state.isConnected && state.isInternetReachable) {
-      console.log('🌐 Network connected - triggering sync');
+      syncLogger.info('🌐 Network connected - triggering sync');
       performSync();
     } else {
-      console.log('📴 Network disconnected - sync paused');
+      syncLogger.info('📴 Network disconnected - sync paused');
     }
   });
 
@@ -140,7 +152,7 @@ export function stopSyncService(): void {
     clearInterval(syncInterval);
     syncInterval = null;
   }
-  console.log('🛑 Sync service stopped');
+  syncLogger.info('🛑 Sync service stopped');
 }
 
 /**
@@ -150,7 +162,7 @@ async function performSync(): Promise<void> {
   if (!supabase || isCurrentlySyncing) return;
 
   isCurrentlySyncing = true;
-  console.log('🔄 Starting sync...');
+  syncLogger.info('🔄 Starting sync...');
 
   try {
     // 1. Push unsynced local markers to cloud
@@ -174,9 +186,15 @@ async function performSync(): Promise<void> {
     // 7. Pull SOS responses from cloud
     await pullSOSResponsesFromCloud();
 
-    console.log('✅ Sync completed successfully');
+    syncLogger.info('✅ Sync completed successfully');
+    
+    // Notify listeners that sync is complete (for UI refresh)
+    if (onSyncCompleteCallback) {
+      syncLogger.debug('🔔 Notifying sync complete callback...');
+      onSyncCompleteCallback();
+    }
   } catch (error) {
-    console.error('❌ Sync error:', error);
+    syncLogger.error('❌ Sync error:', error);
   } finally {
     isCurrentlySyncing = false;
   }
@@ -192,11 +210,11 @@ async function pushLocalMarkersToCloud(): Promise<void> {
   const unsyncedMarkers = await getUnsyncedMarkers();
 
   if (unsyncedMarkers.length === 0) {
-    console.log('📤 No markers to push');
+    syncLogger.info('📤 No markers to push');
     return;
   }
 
-  console.log(`📤 Pushing ${unsyncedMarkers.length} markers to cloud...`);
+  syncLogger.info(`📤 Pushing ${unsyncedMarkers.length} markers to cloud...`);
 
   for (const marker of unsyncedMarkers) {
     try {
@@ -205,9 +223,9 @@ async function pushLocalMarkersToCloud(): Promise<void> {
 
       if (existingMarker) {
         // Similar marker found - merge instead of creating duplicate
-        console.log(`🔀 Merging marker ${marker.id} into existing ${existingMarker.id}`);
-        console.log(`   Local: agrees=${marker.agrees}, disagrees=${marker.disagrees}`);
-        console.log(`   Cloud: agrees=${existingMarker.agrees}, disagrees=${existingMarker.disagrees}`);
+        syncLogger.info(`🔀 Merging marker ${marker.id} into existing ${existingMarker.id}`);
+        syncLogger.info(`   Local: agrees=${marker.agrees}, disagrees=${marker.disagrees}`);
+        syncLogger.info(`   Cloud: agrees=${existingMarker.agrees}, disagrees=${existingMarker.disagrees}`);
         
         // Take the HIGHER vote counts (don't add them together - that causes double counting!)
         // This assumes both platforms are syncing the cumulative vote totals
@@ -216,7 +234,7 @@ async function pushLocalMarkersToCloud(): Promise<void> {
         const totalVotes = mergedAgrees + mergedDisagrees;
         const mergedConfidenceScore = totalVotes > 0 ? Math.round((mergedAgrees / totalVotes) * 100) : 100;
 
-        console.log(`   Merged: agrees=${mergedAgrees}, disagrees=${mergedDisagrees}`);
+        syncLogger.info(`   Merged: agrees=${mergedAgrees}, disagrees=${mergedDisagrees}`);
 
         // Update the existing marker with merged data
         const { error: updateError } = await supabase
@@ -234,11 +252,11 @@ async function pushLocalMarkersToCloud(): Promise<void> {
           .eq('id', existingMarker.id);
 
         if (updateError) {
-          console.error('❌ Error merging marker:', updateError);
+          syncLogger.error('❌ Error merging marker:', updateError);
         } else {
           // Mark local marker as synced (merged)
           await markMarkerAsSynced(marker.id);
-          console.log(`✅ Merged marker ${marker.id} → ${existingMarker.id}`);
+          syncLogger.info(`✅ Merged marker ${marker.id} → ${existingMarker.id}`);
         }
       } else {
         // No similar marker found - create new one
@@ -262,14 +280,14 @@ async function pushLocalMarkersToCloud(): Promise<void> {
           .upsert(supabaseMarker, { onConflict: 'id' });
 
         if (error) {
-          console.error('❌ Error pushing marker:', marker.id, error);
+          syncLogger.error('❌ Error pushing marker:', marker.id, error);
         } else {
           await markMarkerAsSynced(marker.id);
-          console.log('✅ Pushed new marker:', marker.id);
+          syncLogger.info('✅ Pushed new marker:', marker.id);
         }
       }
     } catch (error) {
-      console.error('❌ Error pushing marker:', marker.id, error);
+      syncLogger.error('❌ Error pushing marker:', marker.id, error);
     }
   }
 }
@@ -287,7 +305,7 @@ async function pullCloudMarkersToLocal(): Promise<void> {
       ? Math.max(...localMarkers.map(m => m.lastVerified))
       : 0;
 
-    console.log(`📥 Pulling markers updated since ${new Date(mostRecentVerified).toISOString()}...`);
+    syncLogger.info(`📥 Pulling markers updated since ${new Date(mostRecentVerified).toISOString()}...`);
 
     // Fetch markers from cloud that have been updated since our most recent
     const { data, error } = await supabase
@@ -297,16 +315,16 @@ async function pullCloudMarkersToLocal(): Promise<void> {
       .order('last_verified', { ascending: false });
 
     if (error) {
-      console.error('❌ Error pulling markers:', error);
+      syncLogger.error('❌ Error pulling markers:', error);
       return;
     }
 
     if (!data || data.length === 0) {
-      console.log('📥 No updated markers to pull');
+      syncLogger.info('📥 No updated markers to pull');
       return;
     }
 
-    console.log(`📥 Pulled ${data.length} updated markers from cloud`);
+    syncLogger.info(`📥 Pulled ${data.length} updated markers from cloud`);
 
     // Insert markers into local database
     for (const cloudMarker of data) {
@@ -329,9 +347,9 @@ async function pullCloudMarkersToLocal(): Promise<void> {
       await upsertMarker(marker);
     }
 
-    console.log('✅ Cloud markers synced to local database');
+    syncLogger.info('✅ Cloud markers synced to local database');
   } catch (error) {
-    console.error('❌ Error pulling markers from cloud:', error);
+    syncLogger.error('❌ Error pulling markers from cloud:', error);
   }
 }
 
@@ -347,11 +365,11 @@ async function reconcileSyncedMarkers(): Promise<void> {
     const syncedMarkers = await getSyncedMarkers();
 
     if (syncedMarkers.length === 0) {
-      console.log('🔄 No synced markers to reconcile');
+      syncLogger.info('🔄 No synced markers to reconcile');
       return;
     }
 
-    console.log(`🔄 Reconciling ${syncedMarkers.length} synced markers with cloud...`);
+    syncLogger.info(`🔄 Reconciling ${syncedMarkers.length} synced markers with cloud...`);
 
     // Get IDs of all local synced markers
     const localMarkerIds = syncedMarkers.map(m => m.id);
@@ -363,7 +381,7 @@ async function reconcileSyncedMarkers(): Promise<void> {
       .in('id', localMarkerIds);
 
     if (error) {
-      console.error('❌ Error fetching markers from cloud for reconciliation:', error);
+      syncLogger.error('❌ Error fetching markers from cloud for reconciliation:', error);
       return;
     }
 
@@ -374,25 +392,25 @@ async function reconcileSyncedMarkers(): Promise<void> {
     const orphanedMarkers = syncedMarkers.filter(m => !cloudMarkerIds.has(m.id));
 
     if (orphanedMarkers.length === 0) {
-      console.log('✅ All synced markers exist in cloud - no cleanup needed');
+      syncLogger.info('✅ All synced markers exist in cloud - no cleanup needed');
       return;
     }
 
-    console.log(`🗑️ Found ${orphanedMarkers.length} orphaned markers - cleaning up...`);
+    syncLogger.info(`🗑️ Found ${orphanedMarkers.length} orphaned markers - cleaning up...`);
 
     // Delete orphaned markers from local DB
     for (const marker of orphanedMarkers) {
       try {
         await deleteMarker(marker.id);
-        console.log(`✅ Deleted orphaned marker: ${marker.id}`);
+        syncLogger.info(`✅ Deleted orphaned marker: ${marker.id}`);
       } catch (error) {
-        console.error(`❌ Error deleting orphaned marker ${marker.id}:`, error);
+        syncLogger.error(`❌ Error deleting orphaned marker ${marker.id}:`, error);
       }
     }
 
-    console.log(`✅ Reconciliation complete - removed ${orphanedMarkers.length} orphaned markers`);
+    syncLogger.info(`✅ Reconciliation complete - removed ${orphanedMarkers.length} orphaned markers`);
   } catch (error) {
-    console.error('❌ Error during marker reconciliation:', error);
+    syncLogger.error('❌ Error during marker reconciliation:', error);
   }
 }
 
@@ -402,7 +420,7 @@ async function reconcileSyncedMarkers(): Promise<void> {
 function subscribeToRealtimeUpdates(): void {
   if (!supabase) return;
 
-  console.log('🔔 Subscribing to real-time updates...');
+  syncLogger.info('🔔 Subscribing to real-time updates...');
 
   supabase
     .channel('markers_changes')
@@ -414,7 +432,7 @@ function subscribeToRealtimeUpdates(): void {
         table: 'markers',
       },
       (payload) => {
-        console.log('🔔 Real-time update received:', payload.eventType);
+        syncLogger.info('🔔 Real-time update received:', payload.eventType);
         
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const cloudMarker = payload.new as SupabaseMarker;
@@ -437,15 +455,26 @@ function subscribeToRealtimeUpdates(): void {
 
           // Update local database with real-time change
           upsertMarker(marker).then(() => {
-            console.log('✅ Real-time marker synced to local DB:', marker.id);
+            syncLogger.info('✅ Real-time marker synced to local DB:', marker.id);
+            // Notify UI to refresh after real-time update
+            if (onSyncCompleteCallback) {
+              onSyncCompleteCallback();
+            }
           });
         } else if (payload.eventType === 'DELETE') {
           const deletedId = payload.old?.id;
           if (deletedId) {
-            console.log('🗑️ Real-time: Marker deleted from cloud:', deletedId);
-            deleteMarker(deletedId).catch(err =>
-              console.error('Error deleting marker from local DB:', err)
-            );
+            syncLogger.info('🗑️ Real-time: Marker deleted from cloud:', deletedId);
+            deleteMarker(deletedId)
+              .then(() => {
+                syncLogger.info('✅ Marker deleted from local DB:', deletedId);
+                // Notify UI to refresh after deletion
+                if (onSyncCompleteCallback) {
+                  syncLogger.debug('🔔 Notifying UI of marker deletion...');
+                  onSyncCompleteCallback();
+                }
+              })
+              .catch(err => syncLogger.error('Error deleting marker from local DB:', err));
           }
         }
       }
@@ -479,11 +508,11 @@ async function pushSOSMarkersToCloud(): Promise<void> {
   const unsyncedSOS = await getUnsyncedSOSMarkers();
 
   if (unsyncedSOS.length === 0) {
-    console.log('📤 No SOS markers to push');
+    syncLogger.info('📤 No SOS markers to push');
     return;
   }
 
-  console.log(`📤 Pushing ${unsyncedSOS.length} SOS markers to cloud...`, 
+  syncLogger.info(`📤 Pushing ${unsyncedSOS.length} SOS markers to cloud...`, 
     unsyncedSOS.map(s => `${s.id.substring(0, 12)}:${s.status}`).join(', '));
 
   for (const sos of unsyncedSOS) {
@@ -504,13 +533,13 @@ async function pushSOSMarkersToCloud(): Promise<void> {
         .upsert(supabaseSOS, { onConflict: 'id' });
 
       if (error) {
-        console.error('❌ Error pushing SOS marker:', sos.id, error);
+        syncLogger.error('❌ Error pushing SOS marker:', sos.id, error);
       } else {
         await markSOSMarkerAsSynced(sos.id);
-        console.log('✅ Pushed SOS marker:', sos.id);
+        syncLogger.info('✅ Pushed SOS marker:', sos.id);
       }
     } catch (error) {
-      console.error('❌ Error pushing SOS marker:', sos.id, error);
+      syncLogger.error('❌ Error pushing SOS marker:', sos.id, error);
     }
   }
 }
@@ -527,7 +556,7 @@ async function pushSOSResponsesToCloud(): Promise<void> {
     return;
   }
 
-  console.log(`📤 Pushing ${unsyncedResponses.length} SOS responses to cloud...`);
+  syncLogger.info(`📤 Pushing ${unsyncedResponses.length} SOS responses to cloud...`);
 
   for (const response of unsyncedResponses) {
     try {
@@ -548,13 +577,13 @@ async function pushSOSResponsesToCloud(): Promise<void> {
         .upsert({ ...supabaseResponse, id: response.id }, { onConflict: 'id' });
 
       if (error) {
-        console.error('❌ Error pushing SOS response:', response.id, error);
+        syncLogger.error('❌ Error pushing SOS response:', response.id, error);
       } else {
         await markSOSResponseAsSynced(response.id);
-        console.log('✅ Pushed SOS response:', response.id);
+        syncLogger.info('✅ Pushed SOS response:', response.id);
       }
     } catch (error) {
-      console.error('❌ Error pushing SOS response:', response.id, error);
+      syncLogger.error('❌ Error pushing SOS response:', response.id, error);
     }
   }
 }
@@ -577,12 +606,12 @@ async function pullSOSMarkersFromCloud(): Promise<void> {
       .order('created_at', { ascending: false });
 
     if (activeError) {
-      console.error('❌ Error pulling active SOS markers:', activeError);
+      syncLogger.error('❌ Error pulling active SOS markers:', activeError);
       return;
     }
 
     if (activeData && activeData.length > 0) {
-      console.log(`📥 Pulled ${activeData.length} active SOS markers from cloud`);
+      syncLogger.info(`📥 Pulled ${activeData.length} active SOS markers from cloud`);
       for (const cloudSOS of activeData) {
         await upsertSOSMarker(cloudSOS);
       }
@@ -597,7 +626,7 @@ async function pullSOSMarkersFromCloud(): Promise<void> {
       .order('created_at', { ascending: false });
 
     if (!completedError && completedData && completedData.length > 0) {
-      console.log(`📥 Found ${completedData.length} recently completed SOS markers, deleting from local DB`);
+      syncLogger.info(`📥 Found ${completedData.length} recently completed SOS markers, deleting from local DB`);
       for (const completedSOS of completedData) {
         await deleteSOSMarker(completedSOS.id);
       }
@@ -609,12 +638,12 @@ async function pullSOSMarkersFromCloud(): Promise<void> {
     
     for (const localMarker of localMarkers) {
       if (!cloudIds.has(localMarker.id)) {
-        console.log(`🧹 Removing orphaned SOS marker from local DB: ${localMarker.id.substring(0, 12)}`);
+        syncLogger.info(`🧹 Removing orphaned SOS marker from local DB: ${localMarker.id.substring(0, 12)}`);
         await deleteSOSMarker(localMarker.id);
       }
     }
   } catch (error) {
-    console.error('❌ Error pulling SOS markers from cloud:', error);
+    syncLogger.error('❌ Error pulling SOS markers from cloud:', error);
   }
 }
 
@@ -632,7 +661,7 @@ async function pullSOSResponsesFromCloud(): Promise<void> {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('❌ Error pulling SOS responses:', error);
+      syncLogger.error('❌ Error pulling SOS responses:', error);
       return;
     }
 
@@ -640,13 +669,13 @@ async function pullSOSResponsesFromCloud(): Promise<void> {
       return;
     }
 
-    console.log(`📥 Pulled ${data.length} SOS responses from cloud`);
+    syncLogger.info(`📥 Pulled ${data.length} SOS responses from cloud`);
 
     for (const cloudResponse of data) {
       await upsertSOSResponse(cloudResponse);
     }
   } catch (error) {
-    console.error('❌ Error pulling SOS responses from cloud:', error);
+    syncLogger.error('❌ Error pulling SOS responses from cloud:', error);
   }
 }
 
@@ -656,7 +685,7 @@ async function pullSOSResponsesFromCloud(): Promise<void> {
 function subscribeToSOSRealtimeUpdates(): void {
   if (!supabase) return;
 
-  console.log('🔔 Subscribing to SOS real-time updates...');
+  syncLogger.info('🔔 Subscribing to SOS real-time updates...');
 
   // Subscribe to SOS markers
   supabase
@@ -669,29 +698,29 @@ function subscribeToSOSRealtimeUpdates(): void {
         table: 'sos_markers',
       },
       (payload) => {
-        console.log('🔔 SOS marker update received:', payload.eventType);
+        syncLogger.info('🔔 SOS marker update received:', payload.eventType);
         
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const cloudSOS = payload.new as SupabaseSOSMarker;
           
           // If the SOS is completed, DELETE it from local DB immediately
           if (cloudSOS.status === 'completed') {
-            console.log('✅ Real-time: SOS completed, deleting from local DB:', cloudSOS.id.substring(0, 12));
+            syncLogger.info('✅ Real-time: SOS completed, deleting from local DB:', cloudSOS.id.substring(0, 12));
             deleteSOSMarker(cloudSOS.id).catch(err => 
-              console.error('Error deleting completed SOS:', err)
+              syncLogger.error('Error deleting completed SOS:', err)
             );
             return;
           }
           
           upsertSOSMarker(cloudSOS).then(() => {
-            console.log('✅ Real-time SOS marker synced:', cloudSOS.id.substring(0, 12), 'status:', cloudSOS.status);
+            syncLogger.info('✅ Real-time SOS marker synced:', cloudSOS.id.substring(0, 12), 'status:', cloudSOS.status);
           });
         } else if (payload.eventType === 'DELETE') {
           const deletedId = payload.old?.id;
           if (deletedId) {
-            console.log('✅ Real-time: SOS deleted from cloud:', deletedId.substring(0, 12));
+            syncLogger.info('✅ Real-time: SOS deleted from cloud:', deletedId.substring(0, 12));
             deleteSOSMarker(deletedId).catch(err =>
-              console.error('Error deleting SOS:', err)
+              syncLogger.error('Error deleting SOS:', err)
             );
           }
         }
@@ -710,12 +739,12 @@ function subscribeToSOSRealtimeUpdates(): void {
         table: 'sos_responses',
       },
       (payload) => {
-        console.log('🔔 SOS response update received:', payload.eventType);
+        syncLogger.info('🔔 SOS response update received:', payload.eventType);
         
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const cloudResponse = payload.new as SupabaseSOSResponse;
           upsertSOSResponse(cloudResponse).then(() => {
-            console.log('✅ Real-time SOS response synced:', cloudResponse.id);
+            syncLogger.info('✅ Real-time SOS response synced:', cloudResponse.id);
           });
         }
       }
