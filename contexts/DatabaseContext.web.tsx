@@ -13,8 +13,9 @@ import {
   initDatabase,
   updateMarkerVotes
 } from '@/utils/database';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { uiLogger } from '@/utils/logger';
+import { supabase } from '@/utils/supabase';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 interface DatabaseContextType {
   isReady: boolean;
@@ -81,6 +82,55 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       uiLogger.error('❌ [Web] Error refreshing markers:', error);
     }
   }, []);
+
+  // Set up periodic marker refresh (every 30 seconds, like mobile)
+  useEffect(() => {
+    if (!isReady) return;
+
+    uiLogger.info('🔄 [Web] Starting periodic marker refresh (every 30 seconds)...');
+
+    // Set up 30-second polling interval
+    const intervalId = setInterval(() => {
+      uiLogger.info('⏰ [Web] Periodic refresh triggered');
+      refreshMarkers();
+    }, 30000); // 30 seconds
+
+    return () => {
+      uiLogger.info('🛑 [Web] Stopping periodic marker refresh');
+      clearInterval(intervalId);
+    };
+  }, [isReady, refreshMarkers]);
+
+  // Set up real-time subscriptions for markers (for instant updates when Realtime is enabled)
+  useEffect(() => {
+    if (!isReady || !supabase) return;
+
+    uiLogger.info('🔔 [Web] Setting up real-time subscriptions...');
+
+    // Subscribe to marker changes (INSERT, UPDATE, DELETE)
+    const markerSubscription = supabase
+      .channel('markers-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'markers'
+        },
+        (payload) => {
+          uiLogger.info(`🔔 [Web] Real-time marker event: ${payload.eventType}`);
+          
+          // Refresh markers when any change occurs
+          refreshMarkers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      uiLogger.info('🔕 [Web] Unsubscribing from real-time updates...');
+      markerSubscription.unsubscribe();
+    };
+  }, [isReady, refreshMarkers]);
 
   // Add a new marker
   const addMarker = useCallback(async (marker: Marker) => {

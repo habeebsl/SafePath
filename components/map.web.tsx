@@ -72,6 +72,7 @@ export default function MapComponent() {
   const [refreshing, setRefreshing] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
+  const markerIdsRef = useRef<string>(''); // Track marker IDs to detect changes
   
   // Track current trail ID to prevent re-rendering on progress updates
   const currentTrailIdRef = useRef<string | null>(null);
@@ -283,27 +284,28 @@ export default function MapComponent() {
     location ? { lat: location.coords.latitude, lon: location.coords.longitude } : activeTrail.route.waypoints[0]
   ) : null;
 
-  // Load existing markers when map is ready
+  // Update markers on map when markers change
   useEffect(() => {
-    if (mapReady && markers.length > 0) {
-      markers.forEach(marker => addMarkerToMap(marker));
-    }
-  }, [mapReady]);
-
-  // Load SOS markers when map is ready
-  useEffect(() => {
-    if (mapReady && activeSOSMarkers.length > 0) {
-      activeSOSMarkers.forEach(sosMarker => addSOSMarkerToMap(sosMarker));
-    }
-  }, [mapReady, activeSOSMarkers.length]);
-
-  // Update markers on map when markers change (e.g., after sync)
-  useEffect(() => {
-    if (mapReady && !refreshing) {
-      // Don't refresh during manual sync (we handle it explicitly there)
+    if (!mapReady) return;
+    
+    // Create a stable identifier for the current set of markers
+    const currentMarkerIds = markers.map(m => m.id).sort().join(',');
+    
+    // Only refresh if markers actually changed
+    if (markerIdsRef.current !== currentMarkerIds) {
+      uiLogger.info(`🗺️ [Web] Markers changed, updating map (${markers.length} markers)`);
+      markerIdsRef.current = currentMarkerIds;
       refreshMapMarkers();
     }
-  }, [markers.length, mapReady]);
+  }, [markers, mapReady]);
+
+  // Update SOS markers on map when they change
+  useEffect(() => {
+    if (!mapReady) return;
+    
+    clearSOSMarkers();
+    activeSOSMarkers.forEach(sosMarker => addSOSMarkerToMap(sosMarker));
+  }, [activeSOSMarkers.length, mapReady]);
 
   // Update SOS markers on map when they change
   useEffect(() => {
