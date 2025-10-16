@@ -4,20 +4,23 @@ import { SOSButton } from '@/components/sos/SOSButton';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
-import { generateMarkerHTML } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
+import { useMapInstance } from '@/hooks/map/useMapInstance';
+import { useMapMarkers } from '@/hooks/map/useMapMarkers';
+import { useMapSOSMarkers } from '@/hooks/map/useMapSOSMarkers';
+import { useMapTrail } from '@/hooks/map/useMapTrail';
+import { useMapTrailProgressAndUserMarker } from '@/hooks/map/useMapTrailProgressAndUserMarker';
+import { useMapUserLocation } from '@/hooks/map/useMapUserLocation';
+import { useMapActions } from '@/hooks/map/shared/useMapActions';
 import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { Marker, MarkerType } from '@/types/marker';
-import { SOSMarker } from '@/types/sos';
 import { uiLogger } from '@/utils/logger';
-import { handleManualSync, handleSaveMarker } from '@/utils/map-handlers';
-import { getRemainingWaypoints } from '@/utils/trail-helpers';
+import { handleManualSync } from '@/utils/map-handlers';
 import Constants from 'expo-constants';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -31,124 +34,55 @@ export default function MapComponent() {
   const isOnline = useNetworkStatus();
   const modals = useMapModals();
   
-  const webViewRef = useRef<WebView>(null);
-  const [mapReady, setMapReady] = useState(false);
-  const [initialLocationSet, setInitialLocationSet] = useState(false);
+  const webViewRef = useRef<WebView>(null)
   const [refreshing, setRefreshing] = useState(false);
-  
-  // Track current trail ID to prevent re-rendering on progress updates
-  const currentTrailIdRef = useRef<string | null>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
-  // Store initial location when GPS first gets a fix
-  const initialLocation = useRef<typeof location>(null);
-  
-  // Capture the first location we get from GPS
-  useEffect(() => {
-    if (location && !initialLocation.current) {
-      initialLocation.current = location;
-      setInitialLocationSet(true);
-    }
-  }, [location]);
+  const { mapReady, setMapReady, initialLocation } = useMapInstance({
+    webViewRef,
+    location
+  })
 
-  // Center map on user location when we first get GPS fix
-  useEffect(() => {
-    if (initialLocationSet && mapReady && webViewRef.current && location) {
-      const js = `
-        if (window.map && window.userMarker && window.recenterMap) {
-          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
-          window.userMarker.setLatLng(newLatLng);
-          window.recenterMap();
-        }
-      `;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [initialLocationSet, mapReady]);
+  const { refreshMapMarkers } = useMapMarkers({
+    webViewRef,
+    mapReady,
+    markers,
+    refreshing
+  })
 
-  // Update marker position when location changes (but don't recenter map)
-  useEffect(() => {
-    if (location && mapReady && webViewRef.current) {
-      const js = `
-        if (window.map && window.userMarker) {
-          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
-          window.userMarker.setLatLng(newLatLng);
-          // Don't call setView here - let user pan around freely
-          // Only recenter when they click the recenter button
-        }
-      `;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [location, mapReady]);
+  useMapSOSMarkers({
+    webViewRef,
+    mapReady,
+    sosMarkers: activeSOSMarkers
+  })
 
-  // Render active trail on map (only when trail changes, not on progress updates)
-  useEffect(() => {
-    if (!mapReady || !webViewRef.current) return;
+  useMapTrail({
+    webViewRef,
+    mapReady,
+    activeTrail
+  })
 
-    const newTrailId = activeTrail ? `${activeTrail.targetMarker.id}-${activeTrail.context}` : null;
-    
-    // Only update if trail actually changed (not just progress update)
-    if (currentTrailIdRef.current === newTrailId) return;
-    
-    currentTrailIdRef.current = newTrailId;
+  useMapTrailProgressAndUserMarker({
+    webViewRef,
+    mapReady,
+    activeTrail,
+    location
+  })
 
-    if (activeTrail) {
-      // Draw trail (auto-zoom on first creation)
-      const waypointsJson = JSON.stringify(activeTrail.route.waypoints);
-      const isOffline = activeTrail.route.strategy === 'offline';
-      const js = `
-        if (window.drawTrail) {
-          window.drawTrail(${waypointsJson}, '${activeTrail.color}', true, ${isOffline});
-        }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
-      uiLogger.info('🗺️ Trail rendered on map');
-    } else {
-      // Clear trail
-      const js = `
-        if (window.clearTrail) {
-          window.clearTrail();
-        }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
-      uiLogger.info('🗺️ Trail cleared from map');
-    }
-  }, [activeTrail, mapReady]);
+  useMapUserLocation({
+    webViewRef,
+    mapReady,
+    location
+  })
 
-  // Update trail as user moves (show remaining path from current position)
-  useEffect(() => {
-    if (!location || !activeTrail || !mapReady || !webViewRef.current) return;
-    
-    const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
-    const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
-    
-    // Update trail to show only remaining path
-    const waypointsJson = JSON.stringify(remainingWaypoints);
-    const isOffline = activeTrail.route.strategy === 'offline';
-    const js = `
-      if (window.drawTrail) {
-        window.drawTrail(${waypointsJson}, '${activeTrail.color}', false, ${isOffline});
-      }
-      true;
-    `;
-    webViewRef.current.injectJavaScript(js);
-  }, [location, activeTrail, mapReady]);
-
-  // Update user position on trail as they move
-  useEffect(() => {
-    if (location && activeTrail && mapReady && webViewRef.current) {
-      const js = `
-        if (window.updateUserMarkerOnTrail) {
-          window.updateUserMarkerOnTrail(${location.coords.latitude}, ${location.coords.longitude});
-        }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [location, activeTrail, mapReady]);
+  const { onSaveMarker, onVote } = useMapActions({
+    deviceId,
+    dbReady,
+    dbAddMarker,
+    modals
+  });
 
   // Memoize HTML content so it only creates ONCE (not on every location update)
   // Only recreate when we get initial location or API key changes
@@ -421,225 +355,6 @@ export default function MapComponent() {
     }
   };
 
-  // Handle saving new marker
-  const onSaveMarker = async (data: {
-    type: MarkerType;
-    title: string;
-    description: string;
-    latitude: number;
-    longitude: number;
-  }) => {
-    try {
-      await handleSaveMarker({
-        data,
-        deviceId,
-        dbReady,
-        dbAddMarker,
-        onSuccess: (marker) => {
-          addMarkerToMap(marker);
-          modals.closeAddMarker();
-        },
-      });
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save marker');
-    }
-  };
-
-  // Handle voting on marker
-  const onVote = (vote: 'agree' | 'disagree') => {
-    // This is handled by the database context in MarkerDetailsModal
-    // Just close the modal after voting
-    modals.closeMarkerDetails();
-  };
-
-  // Add marker to Leaflet map
-  const addMarkerToMap = (marker: Marker) => {
-    if (!webViewRef.current || !mapReady) return;
-
-    const markerHTML = generateMarkerHTML(marker.type, marker.confidenceScore);
-    const markerHTMLEscaped = JSON.stringify(markerHTML);
-
-    const js = 
-      `(function() {
-        if (!window.map) return;
-        
-        // Remove existing marker with same ID to prevent duplicates
-        if (window.safePathMarkers['` + marker.id + `']) {
-          window.map.removeLayer(window.safePathMarkers['` + marker.id + `']);
-          delete window.safePathMarkers['` + marker.id + `'];
-        }
-        
-        var markerHTML = ` + markerHTMLEscaped + `;
-        
-        var icon = L.divIcon({
-          className: 'custom-marker',
-          html: markerHTML,
-          iconSize: [40, 50],
-          iconAnchor: [20, 50],
-          popupAnchor: [0, -50]
-        });
-        
-        var marker = L.marker([` + marker.latitude + `, ` + marker.longitude + `], {
-          icon: icon,
-          markerId: '` + marker.id + `'
-        }).addTo(window.map);
-        
-        marker.on('click', function() {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'markerClick',
-            markerId: '` + marker.id + `'
-          }));
-        });
-        
-        window.safePathMarkers['` + marker.id + `'] = marker;
-      })();`;
-    
-    webViewRef.current.injectJavaScript(js);
-  };
-
-  // Clear all markers from map
-  const clearAllMarkers = () => {
-    if (!webViewRef.current || !mapReady) return;
-
-    const js = `
-      (function() {
-        if (!window.map || !window.safePathMarkers) return;
-        
-        // Remove all markers from map
-        Object.values(window.safePathMarkers).forEach(function(marker) {
-          window.map.removeLayer(marker);
-        });
-        
-                
-        // Clear the markers object
-        window.safePathMarkers = {};
-      })();
-    `;
-    
-    webViewRef.current.injectJavaScript(js);
-  };
-
-  // Add SOS marker to Leaflet map
-  const addSOSMarkerToMap = (sosMarker: SOSMarker) => {
-    if (!webViewRef.current || !mapReady) return;
-
-    const markerHTML = generateMarkerHTML('sos' as MarkerType, 100, sosMarker.status);
-    const markerHTMLEscaped = JSON.stringify(markerHTML);
-
-    const js = `
-      (function() {
-        if (!window.map) return;
-        
-        // Initialize SOS markers object if needed
-        if (!window.sosMarkers) {
-          window.sosMarkers = {};
-        }
-        
-        // Remove existing SOS marker with same ID to prevent duplicates
-        if (window.sosMarkers['` + sosMarker.id + `']) {
-          window.map.removeLayer(window.sosMarkers['` + sosMarker.id + `']);
-          delete window.sosMarkers['` + sosMarker.id + `'];
-        }
-        
-        var markerHTML = ` + markerHTMLEscaped + `;
-        
-        var icon = L.divIcon({
-          className: 'custom-marker sos-marker',
-          html: markerHTML,
-          iconSize: [48, 58],
-          iconAnchor: [24, 58],
-          popupAnchor: [0, -58]
-        });
-        
-        var marker = L.marker([` + sosMarker.latitude + `, ` + sosMarker.longitude + `], {
-          icon: icon,
-          markerId: '` + sosMarker.id + `',
-          markerType: 'sos'
-        }).addTo(window.map);
-        
-        marker.on('click', function() {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'sosMarkerClick',
-            sosMarkerId: '` + sosMarker.id + `'
-          }));
-        });
-        
-        window.sosMarkers['` + sosMarker.id + `'] = marker;
-      })();
-    `;
-    
-    webViewRef.current.injectJavaScript(js);
-  };
-
-  // Clear all SOS markers from map
-  const clearSOSMarkers = () => {
-    if (!webViewRef.current || !mapReady) return;
-
-    const js = `
-      (function() {
-        if (!window.map || !window.sosMarkers) return;
-        
-        // Remove all SOS markers from map
-        Object.values(window.sosMarkers).forEach(function(marker) {
-          window.map.removeLayer(marker);
-        });
-        
-        // Clear the SOS markers object
-        window.sosMarkers = {};
-      })();
-    `;
-    
-    webViewRef.current.injectJavaScript(js);
-  };
-
-  // Refresh all markers on map
-  const refreshMapMarkers = () => {
-    uiLogger.info('Refreshing markers on map: ' + markers.length);
-    clearAllMarkers();
-    setTimeout(() => {
-      markers.forEach(marker => addMarkerToMap(marker));
-      uiLogger.info('Added markers on map: ' + markers.length);
-    }, 100); // Small delay to ensure clear completes
-  };
-
-  // Load existing markers when map is ready
-  useEffect(() => {
-    if (mapReady && markers.length > 0) {
-      markers.forEach(marker => addMarkerToMap(marker));
-    }
-  }, [mapReady]);
-
-  // Load SOS markers when map is ready
-  useEffect(() => {
-    if (mapReady && activeSOSMarkers.length > 0) {
-      activeSOSMarkers.forEach(sosMarker => addSOSMarkerToMap(sosMarker));
-    }
-  }, [mapReady, activeSOSMarkers.length]);
-
-  // Update markers on map when markers change (e.g., after sync)
-  useEffect(() => {
-    if (mapReady && !refreshing) {
-      // Don't refresh during manual sync (we handle it explicitly there)
-      refreshMapMarkers();
-    }
-  }, [markers.length, mapReady]);
-
-  // Update SOS markers on map when they change
-  useEffect(() => {
-    if (mapReady) {
-      uiLogger.info('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
-      // Clear existing SOS markers
-      clearSOSMarkers();
-      // Re-add all SOS markers
-      activeSOSMarkers.forEach(sosMarker => {
-        uiLogger.info('➕ Adding SOS marker to map:', sosMarker.id);
-        addSOSMarkerToMap(sosMarker);
-      });
-    }
-  }, [activeSOSMarkers, mapReady]);
-
-
-
   // Handle manual sync
   const onManualSync = async () => {
     setRefreshing(true);
@@ -647,7 +362,7 @@ export default function MapComponent() {
       await handleManualSync({
         triggerSync,
         refreshMarkers,
-        onSuccess: refreshMapMarkers,
+        onSuccess: () => refreshMapMarkers(markers),
       });
     } catch (error) {
       uiLogger.error('❌ Manual sync failed:', error);
