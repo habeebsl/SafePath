@@ -1,3 +1,4 @@
+import { handleSaveMarker } from '@/utils/map-handlers';
 import { useCallback } from 'react';
 
 interface UseMapActionsOptions {
@@ -15,9 +16,15 @@ export function useMapActions({ deviceId, dbReady, dbAddMarker, modals }: UseMap
   const onSaveMarker = useCallback(async (data: any) => {
     // You can add your own validation here if needed
     try {
-      // Call your save utility (replace with your actual function)
-      await dbAddMarker(data);
-      modals.closeAddMarker();
+      await handleSaveMarker({
+        data,
+        deviceId,
+        dbReady,
+        dbAddMarker,
+        onSuccess: () => {
+          modals.closeAddMarker();
+        },
+      });
     } catch (error) {
       // Handle error (show alert, etc.)
     }

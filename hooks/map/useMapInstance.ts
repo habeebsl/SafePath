@@ -31,7 +31,7 @@ export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) 
       `;
       webViewRef.current.injectJavaScript(js);
     }
-  }, [initialLocationSet, mapReady, location, webViewRef]);
+  }, [initialLocationSet, mapReady, webViewRef]);
 
   return { 
     mapReady,
