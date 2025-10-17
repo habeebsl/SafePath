@@ -1,49 +1,49 @@
-import { useEffect } from 'react';
 import { Trail } from '@/types/trail';
-import * as Location from 'expo-location';
 import { getRemainingWaypoints } from '@/utils/trail-helpers';
+import Mapbox from '@rnmapbox/maps';
+import * as Location from 'expo-location';
+import { useMemo } from 'react';
 
 interface UseMapTrailProgressAndUserMarkerOptions {
-  webViewRef: React.RefObject<any>;
+  mapRef: React.RefObject<Mapbox.MapView | null>;
   mapReady: boolean;
   activeTrail?: Trail | null;
   location?: Location.LocationObject | null;
 }
 
 export function useMapTrailProgressAndUserMarker({
-  webViewRef,
+  mapRef,
   mapReady,
   activeTrail,
   location,
 }: UseMapTrailProgressAndUserMarkerOptions) {
-  // Update trail as user moves (show remaining path from current position)
-  useEffect(() => {
-    if (!location || !activeTrail || !mapReady || !webViewRef.current) return;
+  // Calculate remaining trail from current position
+  const remainingTrailGeoJSON = useMemo(() => {
+    if (!location || !activeTrail || !activeTrail.route.waypoints || activeTrail.route.waypoints.length === 0) {
+      return null;
+    }
 
     const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
     const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
 
-    const waypointsJson = JSON.stringify(remainingWaypoints);
-    const isOffline = activeTrail.route.strategy === 'offline';
-    const js = `
-      if (window.drawTrail) {
-        window.drawTrail(${waypointsJson}, '${activeTrail.color}', false, ${isOffline});
-      }
-      true;
-    `;
-    webViewRef.current.injectJavaScript(js);
-  }, [location, activeTrail, mapReady, webViewRef]);
-
-  // Update user position on trail as they move
-  useEffect(() => {
-    if (location && activeTrail && mapReady && webViewRef.current) {
-      const js = `
-        if (window.updateUserMarkerOnTrail) {
-          window.updateUserMarkerOnTrail(${location.coords.latitude}, ${location.coords.longitude});
-        }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
+    if (remainingWaypoints.length === 0) {
+      return null;
     }
-  }, [location, activeTrail, mapReady, webViewRef]);
+
+    return {
+      type: 'Feature' as const,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: remainingWaypoints.map(wp => [wp.lon, wp.lat]),
+      },
+      properties: {
+        color: activeTrail.color,
+        isRemaining: true,
+      },
+    };
+  }, [location, activeTrail]);
+
+  return {
+    remainingTrailGeoJSON,
+  };
 }

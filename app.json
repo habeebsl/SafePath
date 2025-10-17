@@ -53,7 +53,14 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsDownloadToken": "sk.eyJ1IjoiaGFiZWVic2wiLCJhIjoiY200ZWt6ZW01MDNkcjJscjN5aTUwamFobyJ9.YOUR_MAPBOX_SECRET_TOKEN",
+          "RNMapboxMapsImpl": "maplibre"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

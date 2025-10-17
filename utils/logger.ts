@@ -4,7 +4,7 @@
  */
 
 // Set to false in production or when you want to disable debug logs
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false;
 
 // ANSI color codes for terminal output
 const colors = {

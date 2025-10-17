@@ -1,26 +1,19 @@
-import { useEffect } from 'react';
+import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
 
 interface UseMapUserLocationOptions {
-  webViewRef: React.RefObject<any>;
+  mapRef: React.RefObject<Mapbox.MapView | null>;
   mapReady: boolean;
   location?: Location.LocationObject | null;
 }
 
+// For native MapLibre, user location is handled by the UserLocation component
+// This hook is kept for consistency but doesn't need to do anything
 export function useMapUserLocation({
-  webViewRef,
+  mapRef,
   mapReady,
   location,
 }: UseMapUserLocationOptions) {
-  useEffect(() => {
-    if (location && mapReady && webViewRef.current) {
-      const js = `
-        if (window.map && window.userMarker) {
-          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
-          window.userMarker.setLatLng(newLatLng);
-        }
-      `;
-      webViewRef.current.injectJavaScript(js);
-    }
-  }, [location, mapReady, webViewRef]);
+  // UserLocation component in map.tsx handles location updates automatically
+  // No manual updates needed for native MapLibre
 }

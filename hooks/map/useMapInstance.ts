@@ -1,12 +1,14 @@
-import { useEffect, useState, useRef } from 'react';
+import Mapbox from '@rnmapbox/maps';
 import { LocationObject } from 'expo-location';
+import { useEffect, useRef, useState } from 'react';
 
 interface UseMapInstanceOptions {
-  webViewRef: React.RefObject<any>;
+  mapRef: React.RefObject<Mapbox.MapView | null>;
+  cameraRef: React.RefObject<Mapbox.Camera | null>;
   location?: LocationObject | null;
 }
 
-export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) {
+export function useMapInstance({ mapRef, cameraRef, location }: UseMapInstanceOptions) {
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const initialLocation = useRef<LocationObject | null>(null);
@@ -21,21 +23,18 @@ export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) 
 
   // Center map on user location when we first get GPS fix
   useEffect(() => {
-    if (initialLocationSet && mapReady && webViewRef.current && location) {
-      const js = `
-        if (window.map && window.userMarker && window.recenterMap) {
-          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
-          window.userMarker.setLatLng(newLatLng);
-          window.recenterMap();
-        }
-      `;
-      webViewRef.current.injectJavaScript(js);
+    if (initialLocationSet && mapReady && cameraRef.current && location) {
+      cameraRef.current.setCamera({
+        centerCoordinate: [location.coords.longitude, location.coords.latitude],
+        zoomLevel: 15,
+        animationDuration: 1000,
+      });
     }
-  }, [initialLocationSet, mapReady, webViewRef]);
+  }, [initialLocationSet, mapReady, cameraRef, location]);
 
   return { 
     mapReady,
     setMapReady,
     initialLocation
- };
+  };
 }
