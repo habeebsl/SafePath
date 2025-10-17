@@ -1,78 +1,93 @@
-import { useEffect, useRef } from 'react';
 import { generateMarkerHTML } from '@/constants/marker-icons';
-import { uiLogger } from '@/utils/logger';
 import { Marker } from '@/types/marker';
+import { uiLogger } from '@/utils/logger';
+import maplibregl from 'maplibre-gl';
+import { useEffect, useRef } from 'react';
 
 interface UseMapMarkersOptions {
-  markers: Marker[];
+  map: maplibregl.Map | null;
   mapReady: boolean;
-  mapRef: any;
+  markers: Marker[];
   modals: any;
 }
 
-export function useMapMarkers({ markers, mapReady, mapRef, modals }: UseMapMarkersOptions) {
-  const markerLayersRef = useRef<{ [key: string]: any }>({});
+export function useMapMarkers({ map, mapReady, markers, modals }: UseMapMarkersOptions) {
+  const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const lastMarkersRef = useRef<string>(''); // Track markers by IDs to avoid re-render on array recreation
 
-  // Add marker to Leaflet map with custom icon
+  // Add marker to map with custom icon
   const addMarkerToMap = (marker: Marker) => {
-    if (!mapReady || !mapRef.current) return;
+    if (!mapReady || !map) return;
 
     // Remove existing marker with same ID to prevent duplicates
-    if (markerLayersRef.current[marker.id]) {
-      mapRef.current.removeLayer(markerLayersRef.current[marker.id]);
-      delete markerLayersRef.current[marker.id];
+    const existing = markersRef.current.get(marker.id);
+    if (existing) {
+      existing.remove();
+      markersRef.current.delete(marker.id);
     }
 
     const markerHTML = generateMarkerHTML(marker.type, marker.confidenceScore);
 
-    const icon = window.L.divIcon({
-      className: 'custom-marker',
-      html: markerHTML,
-      iconSize: [40, 50],
-      iconAnchor: [20, 50],
-      popupAnchor: [0, -50]
-    });
+    // Create HTML element
+    const el = document.createElement('div');
+    el.className = 'custom-marker';
+    el.innerHTML = markerHTML;
+    el.style.cursor = 'pointer';
+    el.style.width = '40px';
+    el.style.height = '50px';
 
-    const leafletMarker = window.L.marker([marker.latitude, marker.longitude], {
-      icon: icon
-    }).addTo(mapRef.current);
+    // Create MapLibre marker
+    const mlMarker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom',
+    })
+      .setLngLat([marker.longitude, marker.latitude])
+      .addTo(map);
 
-    leafletMarker.on('click', () => {
+    // Add click handler
+    el.addEventListener('click', () => {
       modals.openMarkerDetails(marker);
     });
 
-    markerLayersRef.current[marker.id] = leafletMarker;
+    markersRef.current.set(marker.id, mlMarker);
   };
 
   // Clear all markers from map
   const clearAllMarkers = () => {
-    if (!mapRef.current) return;
-    Object.values(markerLayersRef.current).forEach((marker: any) => {
-      mapRef.current.removeLayer(marker);
-    });
-    markerLayersRef.current = {};
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current.clear();
   };
 
   // Refresh all markers on map
   const refreshMapMarkers = () => {
-    uiLogger.info('Refreshing markers on map: ' + markers.length);
+    uiLogger.info('🔄 Refreshing markers on map:', markers.length);
     clearAllMarkers();
     setTimeout(() => {
       markers.forEach(marker => addMarkerToMap(marker));
-      uiLogger.info('Added markers on map: ' + markers.length);
-    }, 100); // Small delay to ensure clear completes
+      uiLogger.info('✅ Added markers to map:', markers.length);
+    }, 100);
   };
 
-  // Refresh all markers on map when markers change
+  // Refresh all markers when markers actually change (not just array recreation)
   useEffect(() => {
-    if (!mapReady) return;
+    if (!mapReady || !map) return;
+    
+    // Create a stable key based on marker IDs to detect actual changes
+    const markersKey = markers.map(m => m.id).sort().join(',');
+    
+    // Only refresh if markers actually changed
+    if (markersKey === lastMarkersRef.current) {
+      return;
+    }
+    
+    lastMarkersRef.current = markersKey;
+    uiLogger.info('🗺️ Markers changed, refreshing map');
     refreshMapMarkers();
-  }, [markers, mapReady]);
+  }, [markers, mapReady, map]);
 
   return {
-    markerLayersRef,
     addMarkerToMap,
     clearAllMarkers,
-    refreshMapMarkers
+    refreshMapMarkers,
   };
 }

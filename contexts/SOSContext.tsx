@@ -17,20 +17,22 @@ import {
 } from '@/types/sos';
 import {
   addSOSResponse,
+  cleanupOrphanedSOSResponses,
   cancelSOSResponse as dbCancelSOSResponse,
   completeSOSMarker as dbCompleteSOSMarker,
   createSOSMarker as dbCreateSOSMarker,
   deleteSOSMarker,
   getActiveSOSMarkers,
+  getAllSOSMarkersDebug,
   getDeviceId,
   getSOSResponses,
   getUserActiveSOSRequest,
   getUserActiveSOSResponse,
   updateResponderLocation,
 } from '@/utils/database';
+import { uiLogger } from '@/utils/logger';
 import { getDistance } from 'geolib';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { uiLogger } from '@/utils/logger';
 
 interface SOSContextType {
   activeSOSMarkers: SOSMarker[];
@@ -99,7 +101,6 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     const doRefresh = async () => {
       try {
         // Debug: Check ALL markers in local DB
-        const { getAllSOSMarkersDebug } = await import('@/utils/database');
         const allMarkers = await getAllSOSMarkersDebug();
         if (allMarkers.length > 0) {
           uiLogger.info('🔍 ALL SOS in local DB:', allMarkers.length,
@@ -303,6 +304,9 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     if (!deviceId) return;
 
     try {
+      // Clean up orphaned responses first (both web and native)
+      await cleanupOrphanedSOSResponses(deviceId);
+      
       // Get all active SOS markers
       const markers = await getActiveSOSMarkers();
       uiLogger.info('🔄 Refreshing SOS - found markers:', markers.length);

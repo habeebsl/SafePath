@@ -9,59 +9,29 @@ import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
+import { useMapActions } from '@/hooks/map/shared/useMapActions';
+import { useMapInteractions } from '@/hooks/map/shared/useMapInteractions';
 import { useMapInstance } from '@/hooks/map/web/useMapInstance.web';
-import { useMapUserLocation } from '@/hooks/map/web/useMapUserLocation.web';
 import { useMapMarkers } from '@/hooks/map/web/useMapMarkers.web';
 import { useMapSOSMarkers } from '@/hooks/map/web/useMapSOSMarkers.web';
 import { useMapTrail } from '@/hooks/map/web/useMapTrail.web';
 import { useMapTrailProgressAndUserMarker } from '@/hooks/map/web/useMapTrailProgressAndUserMarker.web';
-import { useMapInteractions } from '@/hooks/map/shared/useMapInteractions';
-import { useMapActions } from '@/hooks/map/shared/useMapActions';
+import { useMapUserLocation } from '@/hooks/map/web/useMapUserLocation.web';
 import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { uiLogger } from '@/utils/logger';
 import { handleManualSync } from '@/utils/map-handlers';
-import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// Dynamically import Leaflet to avoid SSR issues
-let L: any;
-let MapContainer: any;
-let TileLayer: any;
-let LeafletMarker: any;
-let Polyline: any;
-let ZoomControl: any;
-let useMapEvents: any;
-
+// Import MapLibre CSS
 if (typeof window !== 'undefined') {
-  L = require('leaflet');
-  require('leaflet/dist/leaflet.css');
-  const ReactLeaflet = require('react-leaflet');
-  MapContainer = ReactLeaflet.MapContainer;
-  TileLayer = ReactLeaflet.TileLayer;
-  LeafletMarker = ReactLeaflet.Marker;
-  Polyline = ReactLeaflet.Polyline;
-  ZoomControl = ReactLeaflet.ZoomControl;
-  useMapEvents = ReactLeaflet.useMapEvents;
-}
-
-// Component to handle map events (must be inside MapContainer)
-function MapEventHandler({ onContextMenu }: { onContextMenu: (e: any) => void }) {
-  if (!useMapEvents) return null;
-  
-  useMapEvents({
-    contextmenu: (e: any) => {
-      onContextMenu(e);
-    },
-  });
-  
-  return null;
+  require('maplibre-gl/dist/maplibre-gl.css');
 }
 
 export default function MapComponent() {
-  uiLogger.info('🗺️ MapComponent rendering (web version)...');
+  uiLogger.info('🗺️ MapComponent rendering (web version - MapLibre)...');
   
   const { location, isTracking, trackingStatus, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
@@ -73,72 +43,100 @@ export default function MapComponent() {
   const modals = useMapModals();
   
   const [refreshing, setRefreshing] = useState(false);
+  const [isClient, setIsClient] = useState(false);
   
-  // Store references to Leaflet trail
-  const userMarkerOnTrailRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
-  // Calculate initial map center and zoom
-  const initialCenter: [number, number] = location 
-    ? [location.coords.latitude, location.coords.longitude]
-    : [region.center.latitude, region.center.longitude];
-  const initialZoom = location ? 15 : 6;
+  // Calculate initial map center and zoom ONCE (use refs to prevent re-initialization)
+  const initialCenter = useRef<[number, number]>(
+    location 
+      ? [location.coords.latitude, location.coords.longitude]
+      : [region.center.latitude, region.center.longitude]
+  );
+  const initialZoom = useRef(location ? 15 : 6);
+
+  // Detect client-side rendering
+  useEffect(() => {
+    setIsClient(typeof window !== 'undefined');
+  }, []);
 
   // Map instance hook
-  const { mapRef, mapReady, isClient, handleMapRef } = useMapInstance({
+  const { map, mapReady } = useMapInstance({
+    mapContainer: mapContainerRef,
     location,
-    initialCenter,
-    initialZoom,
+    initialCenter: initialCenter.current,
+    initialZoom: initialZoom.current,
+    mapTilerKey,
+    isClient,
   });
 
   // User location marker hook
   useMapUserLocation({
-    location,
+    map,
     mapReady,
+    location,
   });
 
   // Markers hook
   const { refreshMapMarkers } = useMapMarkers({
-    markers,
+    map,
     mapReady,
-    mapRef,
+    markers,
     modals,
   });
 
   // SOS Markers hook
   useMapSOSMarkers({
-    activeSOSMarkers,
+    map,
     mapReady,
-    mapRef,
-    modals
-  })
+    sosMarkers: activeSOSMarkers,
+    modals,
+  });
+
+  // Debug: Log map ready state
+  useEffect(() => {
+    uiLogger.info('🗺️ Map ready state changed:', mapReady, 'Map instance:', !!map);
+  }, [mapReady, map]);
 
   // Map trail hooks
-  const { trailPolylineRef } = useMapTrail({
-    activeTrail,
+  useMapTrail({
+    map,
     mapReady,
-    mapRef
-  })
+    activeTrail,
+  });
 
   useMapTrailProgressAndUserMarker({
+    map,
+    mapReady,
     location,
     activeTrail,
-    mapReady,
-    mapRef,
-    trailPolylineRef,
-    userMarkerOnTrailRef
-  })
+  });
 
-  const { handleMapClick } = useMapInteractions({ modals })
+  // Debug: Log activeTrail changes
+  useEffect(() => {
+    if (activeTrail) {
+      uiLogger.info('🗺️ Active trail detected in component:', {
+        id: activeTrail.targetMarker.id,
+        waypointsCount: activeTrail.route.waypoints.length,
+        color: activeTrail.color,
+        strategy: activeTrail.route.strategy,
+      });
+    } else {
+      uiLogger.info('🗺️ No active trail');
+    }
+  }, [activeTrail]);
+
+  const { handleMapClick } = useMapInteractions({ modals });
 
   const { onSaveMarker, onVote } = useMapActions({
     deviceId,
     dbReady,
     dbAddMarker,
-    modals
-  })
+    modals,
+  });
 
   // Handle manual sync
   const onManualSync = async () => {
@@ -155,13 +153,16 @@ export default function MapComponent() {
     } finally {
       setRefreshing(false);
     }
-  }; 
+  };
 
-  // Calculate trail waypoints for rendering
-  const trailWaypoints = activeTrail ? getRemainingWaypoints(
-    activeTrail.route.waypoints,
-    location ? { lat: location.coords.latitude, lon: location.coords.longitude } : activeTrail.route.waypoints[0]
-  ) : null;
+  // Only log these on mount or when critical values change
+  useEffect(() => {
+    if (isClient) {
+      uiLogger.info('✅ Client ready, rendering map with MapLibre');
+      uiLogger.info('📍 Initial center:', initialCenter.current, 'Zoom:', initialZoom.current);
+      uiLogger.info('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
+    }
+  }, [isClient, dbReady, markers.length]);
 
   // Show loading state during SSR or before client hydration
   if (!isClient) {
@@ -176,92 +177,28 @@ export default function MapComponent() {
     );
   }
 
-  uiLogger.info('✅ Client ready, rendering map with Leaflet:', !!MapContainer);
-  uiLogger.info('📍 Initial center:', initialCenter, 'Zoom:', initialZoom);
-  uiLogger.info('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
-
   return (
     <View style={styles.container}>
-      {MapContainer ? (
-        <>
-        <MapContainer
-          center={initialCenter}
-          zoom={initialZoom}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={false}
-          ref={handleMapRef}
-        >
-        {/* Map Event Handler - for right-click/long-press to add marker */}
-        <MapEventHandler onContextMenu={e => handleMapClick(e.latlng.lat, e.latlng.lng)} />
-        
-        {/* Zoom Control - positioned bottom right */}
-        {ZoomControl && <ZoomControl position="bottomright" />}
-        
-        {/* Tile Layer */}
-        <TileLayer
-          url={mapTilerKey 
-            ? `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${mapTilerKey}`
-            : 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png'
-          }
-          attribution={mapTilerKey 
-            ? '© MapTiler © OpenStreetMap contributors' 
-            : '© OpenStreetMap contributors'
-          }
-          maxZoom={22}
-          minZoom={1}
-        />
-
-        {/* User Location Marker */}
-        {location && L && (
-          <LeafletMarker
-            position={[location.coords.latitude, location.coords.longitude]}
-            icon={L.divIcon({
-              className: 'user-location-marker',
-              html: '<div style="width: 20px; height: 20px; background: #007AFF; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-              iconSize: [26, 26],
-              iconAnchor: [13, 13],
-            })}
-          />
-        )}
-
-        {/* SafePath Markers and SOS Markers are added pr() and addSOSMarkerToMap() 
-            with custom HTML icons. They are NOT rendered here to avoid duplicate markers. */}
-
-        {/* Active Trail */}
-        {trailWaypoints && trailWaypoints.length > 1 && (
-          <Polyline
-            positions={trailWaypoints.map(wp => [wp.lat, wp.lon])}
-            pathOptions={{
-              color: activeTrail?.color || '#007AFF',
-              weight: 4,
-              opacity: 0.8,
-            }}
-          />
-        )}
-      </MapContainer>
+      {/* MapLibre Container */}
+      <div 
+        ref={mapContainerRef} 
+        style={{ width: '100%', height: '100%' }} 
+      />
       
       {/* Recenter Button */}
-      {mapReady && location && (
+      {mapReady && location && map && (
         <TouchableOpacity
           style={styles.recenterButton}
           onPress={() => {
-            if (mapRef.current && location) {
-              mapRef.current.setView(
-                [location.coords.latitude, location.coords.longitude],
-                17,
-                { animate: true }
-              );
-            }
+            map.flyTo({
+              center: [location.coords.longitude, location.coords.latitude],
+              zoom: 17,
+              duration: 1000,
+            });
           }}
         >
           <Text style={styles.recenterButtonText}>📍</Text>
         </TouchableOpacity>
-      )}
-      </>
-      ) : (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Map library not loaded</Text>
-        </View>
       )}
 
       {/* Map Overlays (badges, status indicators, sync button) */}
@@ -344,25 +281,38 @@ const styles = StyleSheet.create({
   },
 } as const);
 
-// Add CSS to position zoom controls above recenter button
+// Add CSS to style MapLibre zoom controls - position above recenter button
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `
-    /* Position only zoom control, not all bottom-right controls */
-    .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-      margin-bottom: 130px !important;
+    /* Position MapLibre navigation controls above recenter button */
+    .maplibregl-ctrl-bottom-right {
+      bottom: 150px !important; /* Position above recenter button (100px) + spacing */
     }
-    .leaflet-control-zoom a {
+    
+    /* Make zoom buttons larger and match design */
+    .maplibregl-ctrl-group button {
       width: 40px !important;
       height: 40px !important;
-      line-height: 40px !important;
-      font-size: 20px !important;
       border-radius: 4px !important;
       border: 2px solid rgba(0,0,0,0.2) !important;
-      margin-bottom: 4px;
+      background-color: #fff !important;
+      margin: 0 0 4px 0 !important;
     }
-    .leaflet-control-zoom {
-      border: none !important;
+    
+    .maplibregl-ctrl-group button:last-child {
+      margin-bottom: 0 !important;
+    }
+    
+    /* Larger icons */
+    .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+    .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+      background-size: 20px 20px !important;
+    }
+    
+    .maplibregl-ctrl-group {
+      border-radius: 4px !important;
+      box-shadow: 0px 2px 4px 0px rgba(0, 0, 0, 0.25) !important;
     }
   `;
   document.head.appendChild(style);

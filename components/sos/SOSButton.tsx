@@ -62,7 +62,7 @@ export function SOSButton() {
 const styles = StyleSheet.create({
   button: {
     position: 'absolute',
-    bottom: 270, // Above recenter button (which is at 100px)
+    bottom: 300, // Above recenter button (which is at 100px)
     right: 10,
     width: 56,
     height: 56,

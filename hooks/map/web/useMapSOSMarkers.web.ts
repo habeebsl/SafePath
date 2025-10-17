@@ -1,73 +1,83 @@
-import { useEffect, useRef } from 'react';
 import { generateMarkerHTML } from '@/constants/marker-icons';
-import { uiLogger } from '@/utils/logger';
 import { SOSMarker } from '@/types/sos';
+import { uiLogger } from '@/utils/logger';
+import maplibregl from 'maplibre-gl';
+import { useEffect, useRef } from 'react';
 
 interface UseMapSOSMarkersOptions {
-  activeSOSMarkers: SOSMarker[];
+  map: maplibregl.Map | null;
   mapReady: boolean;
-  mapRef: any;
+  sosMarkers: SOSMarker[];
   modals: any;
 }
 
-export function useMapSOSMarkers({ activeSOSMarkers, mapReady, mapRef, modals }: UseMapSOSMarkersOptions) {
-  const sosMarkerLayersRef = useRef<{ [key: string]: any }>({});
+export function useMapSOSMarkers({ map, mapReady, sosMarkers, modals }: UseMapSOSMarkersOptions) {
+  const sosMarkerInstancesRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const lastSOSMarkersRef = useRef<string>(''); // Track SOS markers by IDs
 
-  // Add SOS marker to Leaflet map with custom icon
+  // Add SOS marker to MapLibre map with custom icon
   const addSOSMarkerToMap = (sosMarker: SOSMarker) => {
-    if (!mapReady || !mapRef.current) return;
+    if (!mapReady || !map) return;
 
     // Remove existing SOS marker with same ID to prevent duplicates
-    if (sosMarkerLayersRef.current[sosMarker.id]) {
-      mapRef.current.removeLayer(sosMarkerLayersRef.current[sosMarker.id]);
-      delete sosMarkerLayersRef.current[sosMarker.id];
+    const existing = sosMarkerInstancesRef.current.get(sosMarker.id);
+    if (existing) {
+      existing.remove();
+      sosMarkerInstancesRef.current.delete(sosMarker.id);
     }
 
     const markerHTML = generateMarkerHTML('sos', 100, sosMarker.status);
 
-    const icon = window.L.divIcon({
-      className: 'custom-marker sos-marker',
-      html: markerHTML,
-      iconSize: [48, 58],
-      iconAnchor: [24, 58],
-      popupAnchor: [0, -58]
-    });
+    // Create HTML element for marker
+    const el = document.createElement('div');
+    el.className = 'custom-marker sos-marker';
+    el.innerHTML = markerHTML;
+    el.style.cursor = 'pointer';
 
-    const leafletMarker = window.L.marker([sosMarker.latitude, sosMarker.longitude], {
-      icon: icon
-    }).addTo(mapRef.current);
+    // Create MapLibre marker
+    const mlMarker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom',
+    })
+      .setLngLat([sosMarker.longitude, sosMarker.latitude])
+      .addTo(map);
 
-    leafletMarker.on('click', () => {
+    // Add click handler
+    el.addEventListener('click', () => {
       modals.openSOSDetails(sosMarker);
     });
 
-    sosMarkerLayersRef.current[sosMarker.id] = leafletMarker;
+    sosMarkerInstancesRef.current.set(sosMarker.id, mlMarker);
   };
 
   // Clear all SOS markers from map
   const clearSOSMarkers = () => {
-    if (!mapRef.current) return;
-    Object.values(sosMarkerLayersRef.current).forEach((marker: any) => {
-      mapRef.current.removeLayer(marker);
-    });
-    sosMarkerLayersRef.current = {};
+    sosMarkerInstancesRef.current.forEach(marker => marker.remove());
+    sosMarkerInstancesRef.current.clear();
   };
 
-  // Refresh all SOS markers on map when they change
+  // Refresh all SOS markers on map when they actually change
   useEffect(() => {
-    if (!mapReady) return;
+    if (!mapReady || !map) return;
     
-    uiLogger.info('🗺️ Updating SOS markers on map:', activeSOSMarkers.length);
+    // Create a stable key to detect actual changes
+    const sosMarkersKey = sosMarkers.map(m => m.id).sort().join(',');
+    
+    // Only refresh if SOS markers actually changed
+    if (sosMarkersKey === lastSOSMarkersRef.current) {
+      return;
+    }
+    
+    lastSOSMarkersRef.current = sosMarkersKey;
+    uiLogger.info('🗺️ SOS markers changed, refreshing map:', sosMarkers.length);
     clearSOSMarkers();
     
-    activeSOSMarkers.forEach(sosMarker => {
-      uiLogger.info('➕ Adding SOS marker to map:', sosMarker.id);
+    sosMarkers.forEach(sosMarker => {
       addSOSMarkerToMap(sosMarker);
     });
-  }, [activeSOSMarkers, mapReady]);
+  }, [sosMarkers, mapReady, map]);
 
   return {
-    sosMarkerLayersRef,
     addSOSMarkerToMap,
     clearSOSMarkers,
   };

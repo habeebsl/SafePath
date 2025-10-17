@@ -4,8 +4,8 @@
  */
 
 import { Marker, MarkerType } from '@/types/marker';
-import { supabase } from './supabase';
 import { dbLogger } from '@/utils/logger';
+import { supabase } from './supabase';
 
 // Web doesn't use local SQLite, so these are no-ops or direct Supabase calls
 let deviceId: string | null = null;
@@ -269,7 +269,8 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
   const completedAt = Date.now();
   const expiresAt = completedAt + (5 * 60 * 1000);
   
-  const { error } = await supabase
+  // Update the SOS marker status (no completed_at column in Supabase)
+  const { error: markerError } = await supabase
     .from('sos_markers')
     .update({
       status: 'completed',
@@ -277,8 +278,24 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
     })
     .eq('id', sosId);
   
-  if (error) throw error;
-  dbLogger.info('✅ SOS marker completed:', sosId);
+  if (markerError) throw markerError;
+  
+  // Cancel all active responses for this SOS
+  const { error: responsesError } = await supabase
+    .from('sos_responses')
+    .update({
+      status: 'cancelled',
+      updated_at: completedAt,
+    })
+    .eq('sos_marker_id', sosId)
+    .eq('status', 'active');
+  
+  if (responsesError) {
+    dbLogger.error('Error cancelling responses for completed SOS:', responsesError);
+    // Don't throw - marker was already completed
+  }
+  
+  dbLogger.info('✅ SOS marker completed and all responses cancelled:', sosId);
 }
 
 /**
@@ -452,8 +469,59 @@ export async function deleteCompletedSOSMarkers(): Promise<number> {
   return 0; // Web doesn't have local storage to clean
 }
 
+/**
+ * Clean up orphaned SOS responses (responses to completed or non-existent SOS)
+ * This fixes the "already responding to another SOS" bug
+ */
+export async function cleanupOrphanedSOSResponses(deviceId: string): Promise<void> {
+  if (!supabase) return;
+  
+  try {
+    // Get all active responses for this device
+    const { data: activeResponses, error: fetchError } = await supabase
+      .from('sos_responses')
+      .select('sos_marker_id')
+      .eq('responder_device_id', deviceId)
+      .eq('status', 'active');
+    
+    if (fetchError || !activeResponses || activeResponses.length === 0) return;
+    
+    // Check which SOS markers still exist and are active
+    const sosIds = activeResponses.map(r => r.sos_marker_id);
+    const { data: activeMarkers } = await supabase
+      .from('sos_markers')
+      .select('id')
+      .in('id', sosIds)
+      .eq('status', 'active');
+    
+    const activeMarkerIds = new Set(activeMarkers?.map(m => m.id) || []);
+    
+    // Cancel responses to completed/deleted SOS
+    const orphanedIds = sosIds.filter(id => !activeMarkerIds.has(id));
+    
+    if (orphanedIds.length > 0) {
+      const { error: cancelError } = await supabase
+        .from('sos_responses')
+        .update({
+          status: 'cancelled',
+          updated_at: Date.now(),
+        })
+        .eq('responder_device_id', deviceId)
+        .in('sos_marker_id', orphanedIds)
+        .eq('status', 'active');
+      
+      if (!cancelError) {
+        dbLogger.info('🧹 Cleaned up', orphanedIds.length, 'orphaned SOS response(s)');
+      }
+    }
+  } catch (error) {
+    dbLogger.error('Error cleaning up orphaned responses:', error);
+  }
+}
+
 export async function getAllSOSMarkersDebug(): Promise<any[]> {
-  return getActiveSOSMarkers(); // Just return active markers
+  // Not applicable for web
+  return [];
 }
 
 export async function deleteAllSOSMarkers(): Promise<number> {

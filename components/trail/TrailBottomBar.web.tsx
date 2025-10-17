@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingRight: 16,
     paddingVertical: 14,
-    maxWidth: '400px' as any,
+    maxWidth: '450px' as any,
     boxShadow: '0px 3px 10px 0px rgba(0, 0, 0, 0.2)',
     elevation: 10,
     zIndex: 1000,

@@ -577,7 +577,20 @@ async function pushSOSResponsesToCloud(): Promise<void> {
         .upsert({ ...supabaseResponse, id: response.id }, { onConflict: 'id' });
 
       if (error) {
-        syncLogger.error('❌ Error pushing SOS response:', response.id, error);
+        // Check if it's a foreign key constraint error (SOS marker doesn't exist)
+        if (error.code === '23503') {
+          syncLogger.warn(
+            '⚠️ SOS marker no longer exists for response:',
+            response.id,
+            '- canceling local response'
+          );
+          // Cancel the local response since the SOS marker is gone
+          const { cancelSOSResponse } = await import('@/utils/database');
+          await cancelSOSResponse(response.sos_marker_id, response.responder_device_id);
+          syncLogger.info('✅ Canceled orphaned response:', response.id);
+        } else {
+          syncLogger.error('❌ Error pushing SOS response:', response.id, error);
+        }
       } else {
         await markSOSResponseAsSynced(response.id);
         syncLogger.info('✅ Pushed SOS response:', response.id);
