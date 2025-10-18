@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.habeebsl.safepath"
     },
     "android": {
       "package": "com.habeebsl.safepath",
@@ -53,14 +54,7 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "expo-secure-store",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": "sk.eyJ1IjoiaGFiZWVic2wiLCJhIjoiY200ZWt6ZW01MDNkcjJscjN5aTUwamFobyJ9.YOUR_MAPBOX_SECRET_TOKEN",
-          "RNMapboxMapsImpl": "maplibre"
-        }
-      ]
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

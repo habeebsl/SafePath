@@ -1,49 +1,47 @@
 import { Trail } from '@/types/trail';
 import { getRemainingWaypoints } from '@/utils/trail-helpers';
-import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
-import { useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface UseMapTrailProgressAndUserMarkerOptions {
-  mapRef: React.RefObject<Mapbox.MapView | null>;
+  webViewRef: React.RefObject<any>;
   mapReady: boolean;
   activeTrail?: Trail | null;
   location?: Location.LocationObject | null;
 }
 
 export function useMapTrailProgressAndUserMarker({
-  mapRef,
+  webViewRef,
   mapReady,
   activeTrail,
   location,
 }: UseMapTrailProgressAndUserMarkerOptions) {
-  // Calculate remaining trail from current position
-  const remainingTrailGeoJSON = useMemo(() => {
-    if (!location || !activeTrail || !activeTrail.route.waypoints || activeTrail.route.waypoints.length === 0) {
-      return null;
-    }
+  const lastUpdateTime = useRef<number>(0);
+
+  // Update trail as user moves (show remaining path from current position)
+  useEffect(() => {
+    if (!location || !activeTrail || !mapReady || !webViewRef.current) return;
+
+    const now = Date.now();
+    // Throttle trail updates to once every 2 seconds
+    if (now - lastUpdateTime.current < 2000) return;
 
     const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
     const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
 
-    if (remainingWaypoints.length === 0) {
-      return null;
-    }
+    const waypointsJson = JSON.stringify(remainingWaypoints);
+    const isOffline = activeTrail.route.strategy === 'offline';
+    const js = `
+      if (window.drawTrail) {
+        window.drawTrail(${waypointsJson}, '${activeTrail.color}', false, ${isOffline});
+      }
+      true;
+    `;
+    webViewRef.current.injectJavaScript(js);
+    
+    lastUpdateTime.current = now;
+  }, [location, activeTrail, mapReady, webViewRef]);
 
-    return {
-      type: 'Feature' as const,
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: remainingWaypoints.map(wp => [wp.lon, wp.lat]),
-      },
-      properties: {
-        color: activeTrail.color,
-        isRemaining: true,
-      },
-    };
-  }, [location, activeTrail]);
-
-  return {
-    remainingTrailGeoJSON,
-  };
+  // Don't show a separate trail progress marker - the main user marker is enough
+  // Removing the duplicate marker that was causing the "stacked dot" issue
 }

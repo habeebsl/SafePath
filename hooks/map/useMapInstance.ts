@@ -1,17 +1,16 @@
-import Mapbox from '@rnmapbox/maps';
 import { LocationObject } from 'expo-location';
 import { useEffect, useRef, useState } from 'react';
 
 interface UseMapInstanceOptions {
-  mapRef: React.RefObject<Mapbox.MapView | null>;
-  cameraRef: React.RefObject<Mapbox.Camera | null>;
+  webViewRef: React.RefObject<any>;
   location?: LocationObject | null;
 }
 
-export function useMapInstance({ mapRef, cameraRef, location }: UseMapInstanceOptions) {
+export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) {
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const initialLocation = useRef<LocationObject | null>(null);
+  const hasRecentered = useRef(false);  // Track if we've already recentered
 
   // Capture the first location we get from GPS
   useEffect(() => {
@@ -21,20 +20,24 @@ export function useMapInstance({ mapRef, cameraRef, location }: UseMapInstanceOp
     }
   }, [location]);
 
-  // Center map on user location when we first get GPS fix
+  // Center map on user location when we first get GPS fix (ONLY ONCE)
   useEffect(() => {
-    if (initialLocationSet && mapReady && cameraRef.current && location) {
-      cameraRef.current.setCamera({
-        centerCoordinate: [location.coords.longitude, location.coords.latitude],
-        zoomLevel: 15,
-        animationDuration: 1000,
-      });
+    if (initialLocationSet && mapReady && webViewRef.current && location && !hasRecentered.current) {
+      const js = `
+        if (window.map && window.userMarker && window.recenterMap) {
+          // MapLibre Marker API expects [lng, lat]
+          window.userMarker.setLngLat([${location.coords.longitude}, ${location.coords.latitude}]);
+          window.recenterMap();
+        }
+      `;
+      webViewRef.current.injectJavaScript(js);
+      hasRecentered.current = true;  // Mark as recentered
     }
-  }, [initialLocationSet, mapReady, cameraRef, location]);
+  }, [initialLocationSet, mapReady, webViewRef]);
 
   return { 
     mapReady,
     setMapReady,
     initialLocation
-  };
+ };
 }

@@ -1,51 +1,96 @@
+import { generateMarkerHTML } from '@/constants/marker-icons';
 import { Marker } from '@/types/marker';
-import Mapbox from '@rnmapbox/maps';
-import { useMemo } from 'react';
+import { useCallback, useEffect } from 'react';
 
 interface UseMapMarkersOptions {
-  mapRef: React.RefObject<Mapbox.MapView | null>;
+  webViewRef: React.RefObject<any>;
   mapReady: boolean;
   markers?: Marker[];
   refreshing?: boolean;
 }
 
-export function useMapMarkers({ mapRef, mapReady, markers, refreshing }: UseMapMarkersOptions) {
-  // Convert markers to GeoJSON FeatureCollection
-  const markersGeoJSON = useMemo(() => {
-    if (!markers || markers.length === 0) {
-      return {
-        type: 'FeatureCollection' as const,
-        features: [],
-      };
-    }
+export function useMapMarkers({ webViewRef, mapReady, markers, refreshing }: UseMapMarkersOptions) {
+  // Add marker to map
+  const addMarkerToMap = useCallback((marker: Marker) => {
+    if (!webViewRef.current || !mapReady) return;
 
-    return {
-      type: 'FeatureCollection' as const,
-      features: markers.map((marker) => ({
-        type: 'Feature' as const,
-        id: marker.id,
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [marker.longitude, marker.latitude],
-        },
-        properties: {
-          id: marker.id,
-          type: marker.type,
-          confidenceScore: marker.confidenceScore,
-          description: marker.description || '',
-        },
-      })),
-    };
-  }, [markers]);
+    const markerHTML = generateMarkerHTML(marker.type, marker.confidenceScore);
+    const markerHTMLEscaped = JSON.stringify(markerHTML);
 
-  // Helper to refresh markers (for compatibility with existing code)
-  const refreshMapMarkers = () => {
-    // Native MapLibre automatically updates when GeoJSON changes
-    // This is a no-op for compatibility
-  };
+    const js = `
+      (function() {
+        if (!window.map) return;
+        
+        // Remove existing marker if it exists
+        if (window.safePathMarkers['${marker.id}']) {
+          window.safePathMarkers['${marker.id}'].remove();
+          delete window.safePathMarkers['${marker.id}'];
+        }
+        
+        // Create marker element
+        var markerHTML = ${markerHTMLEscaped};
+        var el = document.createElement('div');
+        el.innerHTML = markerHTML;
+        el.style.cursor = 'pointer';
+        el.style.width = '40px';
+        el.style.height = '50px';
+        
+        // Add click handler
+        el.addEventListener('click', function() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'markerClick',
+            markerId: '${marker.id}'
+          }));
+        });
+        
+        // Create MapLibre marker
+        var mapboxMarker = new maplibregl.Marker({
+          element: el,
+          anchor: 'bottom'
+        })
+        .setLngLat([${marker.longitude}, ${marker.latitude}])
+        .addTo(window.map);
+        
+        window.safePathMarkers['${marker.id}'] = mapboxMarker;
+      })();
+    `;
+    webViewRef.current.injectJavaScript(js);
+  }, [webViewRef, mapReady]);
+
+  // Clear all markers
+  const clearAllMarkers = useCallback(() => {
+    if (!webViewRef.current || !mapReady) return;
+    const js = `
+      (function() {
+        if (!window.map || !window.safePathMarkers) return;
+        Object.values(window.safePathMarkers).forEach(function(marker) {
+          marker.remove();
+        });
+        window.safePathMarkers = {};
+      })();
+    `;
+    webViewRef.current.injectJavaScript(js);
+  }, [webViewRef, mapReady]);
+
+  // Refresh all markers
+  const refreshMapMarkers = useCallback((markers: Marker[]) => {
+    clearAllMarkers();
+    setTimeout(() => {
+      markers.forEach(marker => addMarkerToMap(marker));
+    }, 100);
+  }, [addMarkerToMap, clearAllMarkers]);
+
+  useEffect(() => {
+    if (!mapReady || !webViewRef.current) return;
+    if (!markers) return;
+    if (refreshing) return;
+
+    refreshMapMarkers(markers);
+  }, [mapReady, markers ? markers.length : 0]);
 
   return {
-    markersGeoJSON,
+    addMarkerToMap,
+    clearAllMarkers,
     refreshMapMarkers,
   };
 }
