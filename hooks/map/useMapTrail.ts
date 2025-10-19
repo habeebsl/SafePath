@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
 import { Trail } from '@/types/trail';
 import { uiLogger } from '@/utils/logger';
+import { useEffect, useRef } from 'react';
 
 interface UseMapTrailOptions {
   webViewRef: React.RefObject<any>;
@@ -30,20 +30,26 @@ export function useMapTrail({ webViewRef, mapReady, activeTrail }: UseMapTrailOp
         if (window.drawTrail) {
           window.drawTrail(${waypointsJson}, '${activeTrail.color}', true, ${isOffline});
         }
-        true;
-      `;
-      webViewRef.current.injectJavaScript(js);
-      uiLogger.info('🗺️ Trail rendered on map');
-    } else {
-      // Clear trail
-      const js = `
-        if (window.clearTrail) {
-          window.clearTrail();
+        if (window.enableNavigationMode) {
+          window.enableNavigationMode('${activeTrail.color}');
         }
         true;
       `;
       webViewRef.current.injectJavaScript(js);
-      uiLogger.info('🗺️ Trail cleared from map');
+      uiLogger.info('🗺️ Trail rendered on map with navigation mode');
+    } else {
+      // Clear trail and disable navigation mode
+      const js = `
+        if (window.clearTrail) {
+          window.clearTrail();
+        }
+        if (window.disableNavigationMode) {
+          window.disableNavigationMode();
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(js);
+      uiLogger.info('🗺️ Trail cleared from map, navigation mode disabled');
     }
   }, [activeTrail, mapReady, webViewRef]);
 }

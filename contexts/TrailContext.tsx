@@ -13,6 +13,7 @@ import {
   TRAIL_STYLES,
   TrailContext as TrailContextType
 } from '@/types/trail';
+import { uiLogger } from '@/utils/logger';
 import {
   calculateProgress,
   calculateRoute,
@@ -23,7 +24,6 @@ import {
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useLocation } from './LocationContext';
-import { uiLogger } from '@/utils/logger';
 
 interface TrailContextValue {
   activeTrail: Trail | null;
@@ -247,8 +247,12 @@ export function TrailProvider({ children }: { children: React.ReactNode }) {
   };
   
   const getTrailColor = (markerType: string, context: TrailContextType): string => {
-    // Use trail style color (context-based)
-    return TRAIL_STYLES[context].color;
+    // Import marker config to get marker color
+    const { getMarkerConfig } = require('@/constants/marker-icons');
+    const markerConfig = getMarkerConfig(markerType);
+    
+    // Use marker color instead of context color for better visual consistency
+    return markerConfig.color;
   };
   
   const value: TrailContextValue = {

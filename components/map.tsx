@@ -74,7 +74,8 @@ export default function MapComponent() {
   useMapUserLocation({
     webViewRef,
     mapReady,
-    location
+    location,
+    activeTrail
   })
 
   const { onSaveMarker, onVote } = useMapActions({
@@ -142,19 +143,20 @@ export default function MapComponent() {
         .recenter-button {
           position: absolute;
           bottom: 120px;
-          right: 20px;
-          width: 40px;
-          height: 40px;
+          right: 10px;
+          width: 60px;
+          height: 60px;
           background: white;
-          border: 2px solid rgba(0,0,0,0.2);
-          border-radius: 4px;
+          color: black;
+          border: 1px solid rgba(0,0,0,0.2);
+          border-radius: 30px;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 20px;
           z-index: 1000;
-          box-shadow: 0 0 0 2px rgba(0,0,0,.1);
+          box-shadow: 0px 2px 4px 0px rgba(0, 0, 0, 0.25);
         }
         .recenter-button:hover {
           background: #f4f4f4;
@@ -178,6 +180,31 @@ export default function MapComponent() {
             opacity: 1;
           }
         }
+        
+        /* Trail navigation pulse animation */
+        @keyframes trailPulse {
+          0% {
+            transform: scale(1);
+            opacity: 0.8;
+          }
+          50% {
+            transform: scale(1.5);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0.8;
+          }
+        }
+        
+        .navigation-pulse {
+          position: absolute;
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          animation: trailPulse 2s ease-out infinite;
+          pointer-events: none;
+        }
       </style>
     </head>
     <body>
@@ -185,7 +212,9 @@ export default function MapComponent() {
       
       <!-- Recenter button -->
       <button class="recenter-button" onclick="recenterMap()" title="Go to my location">
-        📍
+        <svg xmlns="http://www.w3.org/2000/svg" height="26px" viewBox="0 -960 960 960" width="26px">
+          <path d="M440-42v-80q-125-14-214.5-103.5T122-440H42v-80h80q14-125 103.5-214.5T440-838v-80h80v80q125 14 214.5 103.5T838-520h80v80h-80q-14 125-103.5 214.5T520-122v80h-80Zm40-158q116 0 198-82t82-198q0-116-82-198t-198-82q-116 0-198 82t-82 198q0 116 82 198t198 82Zm0-120q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T560-480q0-33-23.5-56.5T480-560q-33 0-56.5 23.5T400-480q0 33 23.5 56.5T480-400Zm0-80Z"/>
+        </svg>
       </button>
       
       <script>
@@ -217,7 +246,7 @@ export default function MapComponent() {
         // Add navigation controls (zoom buttons only, no compass)
         map.addControl(new maplibregl.NavigationControl({
           showCompass: false,  // Hide compass button
-          showZoom: true,
+          showZoom: false,
           visualizePitch: false
         }), 'top-right');
 
@@ -229,12 +258,89 @@ export default function MapComponent() {
         userMarkerElement.style.border = '3px solid white';
         userMarkerElement.style.borderRadius = '50%';
         userMarkerElement.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+        userMarkerElement.style.display = 'flex';
+        userMarkerElement.style.alignItems = 'center';
+        userMarkerElement.style.justifyContent = 'center';
 
         var userMarker = new maplibregl.Marker({
-          element: userMarkerElement
+          element: userMarkerElement,
+          anchor: 'center',  // Center the marker on the coordinates
+          rotationAlignment: 'map'
         })
         .setLngLat([initialLng, initialLat])
         .addTo(map);
+
+        // Trail navigation state
+        var isNavigating = false;
+        var trailColor = '#007AFF';
+        var pulseElement = null;
+        
+        // Function to enable trail navigation mode
+        window.enableNavigationMode = function(color) {
+          isNavigating = true;
+          trailColor = color || '#007AFF';
+          
+          // Update marker size and style
+          userMarkerElement.style.width = '40px';
+          userMarkerElement.style.height = '40px';
+          userMarkerElement.style.background = trailColor;
+          userMarkerElement.style.border = '4px solid white';
+          
+          // Add navigation arrow
+          userMarkerElement.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#ffffff" style="display: block;"><path d="m200-120-40-40 320-720 320 720-40 40-280-120-280 120Z"/></svg>';
+          
+          // Remove existing pulse if any
+          if (pulseElement && pulseElement.parentNode) {
+            pulseElement.parentNode.removeChild(pulseElement);
+            pulseElement = null;
+          }
+          
+          // Create new pulse effect
+          pulseElement = document.createElement('div');
+          pulseElement.className = 'navigation-pulse';
+          pulseElement.style.backgroundColor = trailColor;
+          pulseElement.style.top = '-5px';
+          pulseElement.style.left = '-5px';
+          userMarkerElement.appendChild(pulseElement);
+        };
+        
+        // Function to disable trail navigation mode
+        window.disableNavigationMode = function() {
+          isNavigating = false;
+          
+          // Reset marker size and style
+          userMarkerElement.style.width = '20px';
+          userMarkerElement.style.height = '20px';
+          userMarkerElement.style.background = '#007AFF';
+          userMarkerElement.style.border = '3px solid white';
+          userMarkerElement.innerHTML = '';
+          
+          // Remove pulse
+          if (pulseElement && pulseElement.parentNode) {
+            pulseElement.parentNode.removeChild(pulseElement);
+            pulseElement = null;
+          }
+          
+          // Reset rotation
+          userMarker.setRotation(0);
+        };
+        
+        // Function to update marker rotation based on bearing to next waypoint
+        window.updateNavigationBearing = function(lat, lon, nextWaypointLat, nextWaypointLon) {
+          if (!isNavigating) return;
+          
+          // Calculate bearing between two points
+          var lat1 = lat * Math.PI / 180;
+          var lat2 = nextWaypointLat * Math.PI / 180;
+          var dLon = (nextWaypointLon - lon) * Math.PI / 180;
+          
+          var y = Math.sin(dLon) * Math.cos(lat2);
+          var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          var bearing = Math.atan2(y, x) * 180 / Math.PI;
+          
+          // Set marker rotation
+          userMarker.setRotation(bearing);
+        };
 
         // Make map and marker accessible globally
         window.map = map;
@@ -347,7 +453,61 @@ export default function MapComponent() {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'mapReady' }));
         });
 
-        // Handle long-press on map to add marker
+        // Long-press detection for adding markers
+        var longPressTimer = null;
+        var longPressStartPos = null;
+        var LONG_PRESS_DELAY = 500; // 500ms for long press
+        var MOVE_THRESHOLD = 10; // pixels - if finger moves more than this, cancel long press
+
+        map.on('touchstart', function(e) {
+          if (e.originalEvent.touches.length !== 1) return; // Only single touch
+          
+          longPressStartPos = {
+            x: e.originalEvent.touches[0].clientX,
+            y: e.originalEvent.touches[0].clientY,
+            lngLat: e.lngLat
+          };
+          
+          longPressTimer = setTimeout(function() {
+            if (longPressStartPos) {
+              // Trigger long press
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'addMarker',
+                lat: longPressStartPos.lngLat.lat,
+                lng: longPressStartPos.lngLat.lng
+              }));
+              longPressStartPos = null;
+            }
+          }, LONG_PRESS_DELAY);
+        });
+
+        map.on('touchmove', function(e) {
+          if (!longPressStartPos || !e.originalEvent.touches.length) return;
+          
+          var currentX = e.originalEvent.touches[0].clientX;
+          var currentY = e.originalEvent.touches[0].clientY;
+          var deltaX = currentX - longPressStartPos.x;
+          var deltaY = currentY - longPressStartPos.y;
+          var distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+          
+          if (distance > MOVE_THRESHOLD) {
+            // Finger moved too much, cancel long press
+            clearTimeout(longPressTimer);
+            longPressStartPos = null;
+          }
+        });
+
+        map.on('touchend', function(e) {
+          clearTimeout(longPressTimer);
+          longPressStartPos = null;
+        });
+
+        map.on('touchcancel', function(e) {
+          clearTimeout(longPressTimer);
+          longPressStartPos = null;
+        });
+
+        // Keep contextmenu for desktop right-click
         map.on('contextmenu', function(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'addMarker',
