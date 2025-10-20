@@ -1,7 +1,6 @@
 import { Alert } from '@/components/Alert';
 import { MapModals } from '@/components/map/MapModals';
 import { MapOverlays } from '@/components/map/MapOverlays';
-import { SOSButton } from '@/components/sos/SOSButton';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
@@ -78,6 +77,7 @@ export default function MapComponent() {
     map,
     mapReady,
     location,
+    activeTrail,
   });
 
   // Markers hook
@@ -164,6 +164,24 @@ export default function MapComponent() {
     }
   }, [isClient, dbReady, markers.length]);
 
+  // Listen for map context menu (right-click) events
+  useEffect(() => {
+    if (!isClient) return;
+
+    const handleContextMenu = (event: Event) => {
+      const customEvent = event as CustomEvent<{ lat: number; lng: number }>;
+      const { lat, lng } = customEvent.detail;
+      handleMapClick(lat, lng);
+    };
+
+    window.addEventListener('mapContextMenu', handleContextMenu);
+    uiLogger.info('👆 Map context menu listener registered');
+
+    return () => {
+      window.removeEventListener('mapContextMenu', handleContextMenu);
+    };
+  }, [isClient, handleMapClick]);
+
   // Show loading state during SSR or before client hydration
   if (!isClient) {
     uiLogger.info('⏳ Still loading client side...');
@@ -197,7 +215,9 @@ export default function MapComponent() {
             });
           }}
         >
-          <Text style={styles.recenterButtonText}>📍</Text>
+          <svg xmlns="http://www.w3.org/2000/svg" height="26px" viewBox="0 -960 960 960" width="26px">
+            <path d="M440-42v-80q-125-14-214.5-103.5T122-440H42v-80h80q14-125 103.5-214.5T440-838v-80h80v80q125 14 214.5 103.5T838-520h80v80h-80q-14 125-103.5 214.5T520-122v80h-80Zm40-158q116 0 198-82t82-198q0-116-82-198t-198-82q-116 0-198 82t-82 198q0 116 82 198t198 82Zm0-120q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T560-480q0-33-23.5-56.5T480-560q-33 0-56.5 23.5T400-480q0 33 23.5 56.5T480-400Zm0-80Z"/>
+          </svg>
         </TouchableOpacity>
       )}
 
@@ -233,9 +253,6 @@ export default function MapComponent() {
       {/* SOS Notification Banner */}
       <SOSNotificationBanner />
 
-      {/* SOS Button */}
-      <SOSButton />
-
       {/* Trail Bottom Bar */}
       <TrailBottomBar />
     </View>
@@ -262,19 +279,19 @@ const styles = StyleSheet.create({
   },
   recenterButton: {
     position: 'absolute',
-    bottom: 100,
-    right: 10,
+    bottom: 152,
+    right: 20,
     width: 40,
     height: 40,
     backgroundColor: '#fff',
-    borderRadius: 4,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: 'rgba(0,0,0,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
-    boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
-    elevation: 5,
+    // boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
+    // elevation: 5,
   },
   recenterButtonText: {
     fontSize: 20,
@@ -287,14 +304,15 @@ if (typeof document !== 'undefined') {
   style.textContent = `
     /* Position MapLibre navigation controls above recenter button */
     .maplibregl-ctrl-bottom-right {
-      bottom: 150px !important; /* Position above recenter button (100px) + spacing */
+      right: 10px !important;
+      bottom: 10px !important; /* Position above recenter button (100px) + spacing */
     }
     
     /* Make zoom buttons larger and match design */
     .maplibregl-ctrl-group button {
       width: 40px !important;
       height: 40px !important;
-      border-radius: 4px !important;
+      border-radius: 10px !important;
       border: 2px solid rgba(0,0,0,0.2) !important;
       background-color: #fff !important;
       margin: 0 0 4px 0 !important;
@@ -311,8 +329,8 @@ if (typeof document !== 'undefined') {
     }
     
     .maplibregl-ctrl-group {
-      border-radius: 4px !important;
-      box-shadow: 0px 2px 4px 0px rgba(0, 0, 0, 0.25) !important;
+      background: transparent !important;
+      box-shadow: none !important;
     }
   `;
   document.head.appendChild(style);

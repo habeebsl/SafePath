@@ -27,8 +27,8 @@ import { WebView } from 'react-native-webview';
 export default function MapComponent() {
   const { location, isTracking, trackingStatus, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
-  const { activeSOSMarkers } = useSOS();
-  const { activeTrail } = useTrail();
+  const { activeSOSMarkers, completedSOSId, clearCompletedSOSId } = useSOS();
+  const { activeTrail, cancelTrail } = useTrail();
   
   // Custom hooks for state management
   const isOnline = useNetworkStatus();
@@ -84,6 +84,15 @@ export default function MapComponent() {
     dbAddMarker,
     modals
   });
+
+  // Auto-cancel trail when SOS is completed
+  React.useEffect(() => {
+    if (completedSOSId && activeTrail) {
+      uiLogger.info('🛑 SOS completed, auto-canceling trail');
+      cancelTrail();
+      clearCompletedSOSId();
+    }
+  }, [completedSOSId, activeTrail, cancelTrail, clearCompletedSOSId]);
 
   // Memoize HTML content so it only creates ONCE (not on every location update)
   // Only recreate when we get initial location or API key changes

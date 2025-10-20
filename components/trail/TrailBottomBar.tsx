@@ -7,7 +7,6 @@
 
 import { Icon } from '@/components/Icon';
 import { useTrail } from '@/contexts/TrailContext';
-import { TRAIL_STYLES } from '@/types/trail';
 import { formatDistance } from '@/utils/routing';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -28,22 +27,40 @@ export function TrailBottomBar() {
     return null;
   }
   
-  const trailStyle = TRAIL_STYLES[activeTrail.context];
+  // Use the marker color directly instead of trail context color
+  const markerColor = activeTrail.color;
+  const markerType = activeTrail.targetMarker.type;
   const isOfflineRoute = activeTrail.route.strategy === 'offline';
   
+  // Get appropriate icon based on marker type
+  const getMarkerIcon = () => {
+    switch (markerType) {
+      case 'safe': return 'shield-alt';
+      case 'danger': return 'exclamation-triangle';
+      case 'uncertain': return 'question-circle';
+      case 'medical': return 'medkit';
+      case 'food': return 'utensils';
+      case 'shelter': return 'home';
+      case 'checkpoint': return 'flag-checkered';
+      case 'combat': return 'crosshairs';
+      case 'sos': return 'phone';
+      default: return 'map-marker-alt';
+    }
+  };
+  
   return (
-    <View style={[styles.container, { borderTopColor: trailStyle.color }]}>
+    <View style={[styles.container, { borderTopColor: markerColor }]}>
       {/* Trail Info */}
       <View style={styles.infoSection}>
-        <Text style={styles.label} numberOfLines={1}>
-          {trailStyle.label}
+        <Text style={[styles.label, { color: markerColor }]} numberOfLines={1}>
+          <Icon name={getMarkerIcon()} size={12} color={markerColor} library="fa5" /> Navigating
           {isOfflineRoute && ' (Offline)'}
         </Text>
         <Text style={styles.destination} numberOfLines={1}>
-          📍 {activeTrail.targetMarker.title}
+          <Icon name="map-marker-alt" size={12} color="#666" library="fa5" /> {activeTrail.targetMarker.title}
         </Text>
         <Text style={styles.stats}>
-          {formatDistance(activeTrail.distanceRemaining)} • ⏱️ {activeTrail.etaMinutes} min
+          {formatDistance(activeTrail.distanceRemaining)} • <Icon name="clock" size={10} color="#666" library="fa5" /> {activeTrail.etaMinutes} min
           {isOfflineRoute && ' ⚠️'}
         </Text>
       </View>
@@ -89,7 +106,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
     marginBottom: 2,
   },
   

@@ -3,11 +3,14 @@
  * Responsive design that adapts to different screen sizes
  */
 
+import { Alert } from '@/components/Alert';
 import { Icon } from '@/components/Icon';
+import { useSOS } from '@/contexts/SOSContext';
 import { LocationTrackingStatus } from '@/hooks/useLocationTracking';
 import { Trail } from '@/types/trail';
 import { uiLogger } from '@/utils/logger';
 import { getLocationDisplayText } from '@/utils/region-helpers';
+import * as Haptics from 'expo-haptics';
 import { LocationObject } from 'expo-location';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -40,11 +43,41 @@ export function MapOverlays({
   uiLogger.info('🌐 MapOverlays.web.tsx rendering - location:', !!location, 'activeTrail:', !!activeTrail);
   uiLogger.info('🏷️ Region badge - currentCountry:', currentCountry, 'isLocating:', isLocating);
   
+  const { createSOSRequest, myActiveSOSRequest, isCreatingSOS } = useSOS();
+  
   const screenWidth = Dimensions.get('window').width;
   const isSmallScreen = screenWidth < 600;
   const isDesktop = screenWidth >= 768;
   const regionText = getLocationDisplayText(currentCountry, isLocating);
   uiLogger.info('📝 Region text:', regionText);
+
+  const handleSOSPress = () => {
+    // Haptic feedback
+    if (Haptics.notificationAsync) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+
+    // Show confirmation dialog
+    Alert.alert(
+      'Send SOS?',
+      'This will alert nearby users that you need help. Only use in real emergencies.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Send SOS',
+          style: 'destructive',
+          onPress: async () => {
+            await createSOSRequest();
+          }
+        }
+      ]
+    );
+  };
+
+  const isSOSDisabled = !!myActiveSOSRequest || isCreatingSOS;
   
   return (
     <>
@@ -52,32 +85,6 @@ export function MapOverlays({
       <View style={[styles.regionBadge, isDesktop && styles.regionBadgeDesktop]}>
         <Icon name="map-marker-alt" size={isDesktop ? 16 : 12} color="#fff" style={styles.badgeIcon} />
         <Text style={[styles.regionText, isDesktop && styles.regionTextDesktop]}>{regionText}</Text>
-      </View>
-
-      {/* Tracking status */}
-      <View style={[
-        styles.trackingBadge,
-        isDesktop && styles.trackingBadgeDesktop,
-        trackingStatus === 'tracking' && styles.trackingBadgeActive,
-        trackingStatus === 'permission-denied' && styles.trackingBadgeError,
-        trackingStatus === 'location-disabled' && styles.trackingBadgeError,
-        trackingStatus === 'error' && styles.trackingBadgeError,
-        trackingStatus === 'stopped' && styles.trackingBadgeStopped,
-      ]}>
-        <View style={[
-          styles.trackingDot,
-          isDesktop && styles.trackingDotDesktop,
-          trackingStatus === 'tracking' && styles.trackingDotActive,
-          (trackingStatus === 'permission-denied' || trackingStatus === 'location-disabled' || trackingStatus === 'error') && styles.trackingDotError,
-          trackingStatus === 'stopped' && styles.trackingDotStopped,
-        ]} />
-        <Text style={[styles.trackingText, isDesktop && styles.trackingTextDesktop]}>
-          {trackingStatus === 'tracking' && 'Tracking'}
-          {trackingStatus === 'permission-denied' && 'Permission Denied'}
-          {trackingStatus === 'location-disabled' && 'Location Off'}
-          {trackingStatus === 'error' && 'Location Error'}
-          {trackingStatus === 'stopped' && 'Not Tracking'}
-        </Text>
       </View>
 
       {/* Sync Button */}
@@ -89,9 +96,9 @@ export function MapOverlays({
             disabled={refreshing}
           >
             {refreshing ? (
-              <ActivityIndicator size={isDesktop ? "large" : "small"} color="#fff" />
+              <ActivityIndicator size={isDesktop ? "large" : "small"} color="rgba(33, 150, 243, 0.95)" />
             ) : (
-              <Icon name="sync-alt" size={isDesktop ? 22 : 16} color="#fff" />
+              <Icon name="sync-alt" size={isDesktop ? 22 : 16} color="rgba(33, 150, 243, 0.95)" />
             )}
             
             {/* Network Status Dot */}
@@ -112,6 +119,32 @@ export function MapOverlays({
           ]}>
             <Text style={[styles.statusText, isDesktop && styles.statusTextDesktop]}>
               {isOnline ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+
+          {/* SOS Button */}
+          <TouchableOpacity
+            style={[styles.sosButton, isDesktop && styles.sosButtonDesktop, isSOSDisabled && styles.sosButtonDisabled]}
+            onPress={handleSOSPress}
+            disabled={isSOSDisabled}
+            accessibilityLabel="Send SOS"
+            accessibilityHint="Alert nearby users that you need help"
+          >
+            {isCreatingSOS ? (
+              <ActivityIndicator size={isDesktop ? "large" : "small"} color="#FF0000" />
+            ) : (
+              <Icon name="phone" size={isDesktop ? 22 : 16} color="#FF0000" library="fa5" />
+            )}
+          </TouchableOpacity>
+
+          {/* SOS Status Text */}
+          <View style={[
+            styles.sosTextContainer,
+            isDesktop && styles.sosTextContainerDesktop,
+            isSOSDisabled ? styles.sosTextActive : styles.sosTextInactive
+          ]}>
+            <Text style={[styles.sosText, isDesktop && styles.sosTextDesktop]}>
+              {myActiveSOSRequest ? 'SOS Active' : 'Send SOS'}
             </Text>
           </View>
         </View>
@@ -147,7 +180,7 @@ const styles = StyleSheet.create({
   regionBadge: {
     position: 'absolute',
     top: 60,
-    left: 10,
+    left: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -177,69 +210,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  trackingBadge: {
-    position: 'absolute',
-    top: 60,
-    right: 10,
-    backgroundColor: 'rgba(158, 158, 158, 0.95)', // Default gray
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
-    elevation: 5,
-    zIndex: 1000,
-  },
-  trackingBadgeActive: {
-    backgroundColor: 'rgba(76, 175, 80, 0.95)', // Green for active tracking
-  },
-  trackingBadgeError: {
-    backgroundColor: 'rgba(239, 68, 68, 0.95)', // Red for errors
-  },
-  trackingBadgeStopped: {
-    backgroundColor: 'rgba(158, 158, 158, 0.95)', // Gray for stopped
-  },
-  trackingBadgeDesktop: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    gap: 8,
-  },
-  trackingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#fff',
-  },
-  trackingDotActive: {
-    backgroundColor: '#fff',
-  },
-  trackingDotError: {
-    backgroundColor: '#fff',
-  },
-  trackingDotStopped: {
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  trackingDotDesktop: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  trackingText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  trackingTextDesktop: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
   syncButtonContainer: {
     position: 'absolute',
-    top: 110,
-    right: 10,
+    top: 60,
+    right: 20,
     alignItems: 'flex-end',
     gap: 8,
     zIndex: 1000,
@@ -248,7 +222,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(33, 150, 243, 0.95)',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
@@ -267,7 +241,7 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: 'rgba(33, 150, 243, 0.95)',
+    borderColor: '#FFFFFF',
   },
   statusDotDesktop: {
     width: 16,
@@ -308,10 +282,54 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  sosButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
+    elevation: 5,
+  },
+  sosButtonDesktop: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  sosButtonDisabled: {
+    backgroundColor: '#999',
+    opacity: 0.6,
+  },
+  sosTextContainer: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  sosTextContainerDesktop: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  sosTextActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.95)', // Red for active SOS
+  },
+  sosTextInactive: {
+    backgroundColor: 'rgba(255, 152, 0, 0.95)', // Orange for send SOS
+  },
+  sosText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sosTextDesktop: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
   dbStatusContainer: {
     position: 'absolute',
-    top: 110,
-    right: 10,
+    top: 60,
+    right: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -332,7 +350,7 @@ const styles = StyleSheet.create({
   locationInfo: {
     position: 'absolute',
     bottom: 20,
-    left: 10,
+    left: 20,
     right: 10,
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
     paddingHorizontal: 16,

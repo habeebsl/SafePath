@@ -6,6 +6,7 @@
 import { Alert } from '@/components/Alert';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
+import { useToast } from '@/contexts/ToastContext';
 import {
   SOS_ARRIVAL_THRESHOLD,
   SOS_COOLDOWN_MINUTES,
@@ -39,6 +40,7 @@ interface SOSContextType {
   myActiveSOSRequest: SOSMarker | null;
   myActiveSOSResponse: SOSResponse | null;
   nearbySOSNotifications: SOSNotification[];
+  completedSOSId: string | null; // New: notify when SOS is completed
   
   createSOSRequest: () => Promise<void>;
   completeSOSRequest: (sosId: string) => Promise<void>;
@@ -46,6 +48,7 @@ interface SOSContextType {
   cancelSOSResponse: (sosId: string) => Promise<void>;
   getSOSResponsesForMarker: (sosId: string) => Promise<SOSResponse[]>;
   dismissSOSNotification: (sosId: string) => void;
+  clearCompletedSOSId: () => void; // New: clear the completed notification
   
   refreshSOS: () => Promise<void>;
   isCreatingSOS: boolean;
@@ -56,6 +59,7 @@ const SOSContext = createContext<SOSContextType | undefined>(undefined);
 export function SOSProvider({ children }: { children: React.ReactNode }) {
   const { isReady: dbReady } = useDatabase();
   const { location } = useLocation();
+  const { showToast } = useToast();
   const [deviceId, setDeviceId] = useState<string | null>(null);
   
   const [activeSOSMarkers, setActiveSOSMarkers] = useState<SOSMarker[]>([]);
@@ -66,6 +70,10 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
   const [lastSOSCreatedAt, setLastSOSCreatedAt] = useState<number>(0);
   const [notifiedSOSIds, setNotifiedSOSIds] = useState<Set<string>>(new Set()); // Track which SOS we've already notified
   const [dismissedSOSIds, setDismissedSOSIds] = useState<Set<string>>(new Set()); // Track which SOS user dismissed
+  const [completedSOSId, setCompletedSOSId] = useState<string | null>(null); // Track when SOS gets completed
+  const [previousActiveResponse, setPreviousActiveResponse] = useState<SOSResponse | null>(null); // Track previous response for detection
+  const [mySOSResponders, setMySOSResponders] = useState<SOSResponse[]>([]); // Track responders to my SOS
+  const [previousRespondersCount, setPreviousRespondersCount] = useState<number>(0); // Track previous count for detection
 
   // Initialize device ID when database is ready
   useEffect(() => {
@@ -222,6 +230,67 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
 
     return () => clearInterval(updateInterval);
   }, [location, myActiveSOSResponse, activeSOSMarkers, deviceId]);
+
+  // Detect when SOS I'm responding to gets completed
+  useEffect(() => {
+    if (!myActiveSOSResponse) {
+      setPreviousActiveResponse(null);
+      return;
+    }
+
+    // Check if the SOS marker still exists
+    const sosStillExists = activeSOSMarkers.some(m => m.id === myActiveSOSResponse.sosMarkerId);
+    
+    // If we had an active response and now the SOS is gone, it was completed
+    if (previousActiveResponse && !sosStillExists) {
+      uiLogger.info('🚨 SOS I was responding to has been completed:', myActiveSOSResponse.sosMarkerId);
+      setCompletedSOSId(myActiveSOSResponse.sosMarkerId);
+      
+      // Show toast notification
+      showToast('The SOS you were responding to has been resolved', 'success', 4000);
+    }
+
+    setPreviousActiveResponse(myActiveSOSResponse);
+  }, [myActiveSOSResponse, activeSOSMarkers, previousActiveResponse, showToast]);
+
+  // Track responders to my SOS request and notify when new ones join
+  useEffect(() => {
+    if (!myActiveSOSRequest) {
+      setMySOSResponders([]);
+      setPreviousRespondersCount(0);
+      return;
+    }
+
+    const pollResponders = async () => {
+      try {
+        const responses = await getSOSResponses(myActiveSOSRequest.id);
+        const activeResponses = responses.filter(r => r.status === 'active');
+        
+        setMySOSResponders(activeResponses);
+        
+        // Detect new responders joining (including the first one)
+        if (activeResponses.length > previousRespondersCount) {
+          const newRespondersCount = activeResponses.length - previousRespondersCount;
+          uiLogger.info('🆕 New responder(s) joined:', newRespondersCount);
+          
+          if (newRespondersCount === 1) {
+            showToast('A new responder is coming to help!', 'success', 4000);
+          } else {
+            showToast(`${newRespondersCount} new responders are coming to help!`, 'success', 4000);
+          }
+        }
+        
+        setPreviousRespondersCount(activeResponses.length);
+      } catch (error) {
+        uiLogger.error('Error fetching SOS responders:', error);
+      }
+    };
+
+    pollResponders();
+    const interval = setInterval(pollResponders, 3000); // Poll every 3 seconds
+    
+    return () => clearInterval(interval);
+  }, [myActiveSOSRequest, previousRespondersCount, showToast]);
 
   // Detect nearby SOS markers
   useEffect(() => {
@@ -451,7 +520,7 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
       
       Alert.alert(
         'SOS Completed',
-        'Your SOS has been marked as resolved. It will be removed from the map in 5 minutes.'
+        'Your SOS has been marked as resolved and removed from the map.'
       );
 
     } catch (error) {
@@ -612,17 +681,26 @@ export function SOSProvider({ children }: { children: React.ReactNode }) {
     setDismissedSOSIds(prev => new Set([...prev, sosId]));
   }, []);
 
+  /**
+   * Clear completed SOS ID (after handling the notification)
+   */
+  const clearCompletedSOSId = useCallback(() => {
+    setCompletedSOSId(null);
+  }, []);
+
   const value: SOSContextType = {
     activeSOSMarkers,
     myActiveSOSRequest,
     myActiveSOSResponse,
     nearbySOSNotifications,
+    completedSOSId,
     createSOSRequest,
     completeSOSRequest,
     respondToSOS,
     cancelSOSResponse,
     getSOSResponsesForMarker,
     dismissSOSNotification,
+    clearCompletedSOSId,
     refreshSOS,
     isCreatingSOS
   };
