@@ -4,6 +4,7 @@ import { SOSButton } from '@/components/sos/SOSButton';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
@@ -17,10 +18,11 @@ import { useMapTrailProgressAndUserMarker } from '@/hooks/map/useMapTrailProgres
 import { useMapUserLocation } from '@/hooks/map/useMapUserLocation';
 import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { MarkerType } from '@/types/marker';
 import { uiLogger } from '@/utils/logger';
 import { handleManualSync } from '@/utils/map-handlers';
 import Constants from 'expo-constants';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -36,6 +38,7 @@ export default function MapComponent() {
   
   const webViewRef = useRef<WebView>(null)
   const [refreshing, setRefreshing] = useState(false);
+  const [previewRadius, setPreviewRadius] = useState<{ radius: number; markerType: MarkerType } | null>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
@@ -61,7 +64,8 @@ export default function MapComponent() {
   useMapTrail({
     webViewRef,
     mapReady,
-    activeTrail
+    activeTrail,
+    location
   })
 
   useMapTrailProgressAndUserMarker({
@@ -578,6 +582,148 @@ export default function MapComponent() {
     }
   };
 
+  // Handle radius preview
+  const handleRadiusPreview = useCallback((radius: number | null, markerType: MarkerType) => {
+    if (radius && radius > 0 && modals.selectedLocation && modals.showAddMarker) {
+      const { lat, lng } = modals.selectedLocation;
+      const markerColor = MARKER_CONFIG[markerType].color;
+      
+      setPreviewRadius({ radius, markerType });
+      
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          const map = window.map;
+          if (!map) return;
+          
+          const sourceId = 'radius-preview-source';
+          const layerId = 'radius-preview-layer';
+          const outlineLayerId = layerId + '-outline';
+          
+          const radiusInMeters = ${radius};
+          const lat = ${lat};
+          const lng = ${lng};
+          const markerColor = '${markerColor}';
+          
+          const metersToLngDegrees = (meters, latitude) => {
+            return meters / (111320 * Math.cos(latitude * Math.PI / 180));
+          };
+          const metersToLatDegrees = (meters) => {
+            return meters / 110574;
+          };
+          
+          const points = 64;
+          const coordinates = [];
+          for (let i = 0; i <= points; i++) {
+            const angle = (i / points) * 2 * Math.PI;
+            const dx = radiusInMeters * Math.cos(angle);
+            const dy = radiusInMeters * Math.sin(angle);
+            
+            const lon = lng + metersToLngDegrees(dx, lat);
+            const latCoord = lat + metersToLatDegrees(dy);
+            coordinates.push([lon, latCoord]);
+          }
+          
+          const circleData = {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [coordinates]
+            },
+            properties: {}
+          };
+          
+          // Check if source exists - if yes, just update data
+          const existingSource = map.getSource(sourceId);
+          if (existingSource && existingSource.type === 'geojson') {
+            existingSource.setData(circleData);
+            
+            // Update colors
+            map.setPaintProperty(layerId, 'fill-color', markerColor);
+            map.setPaintProperty(outlineLayerId, 'line-color', markerColor);
+            
+            // Fit map to show the circle with padding
+            const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+            const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+            
+            map.fitBounds([
+              [lng - radiusInDegLng, lat - radiusInDegLat],
+              [lng + radiusInDegLng, lat + radiusInDegLat]
+            ], {
+              padding: { top: 100, bottom: 500, left: 50, right: 50 },
+              duration: 500,
+              maxZoom: 16
+            });
+          } else {
+            // Remove old layers if they exist
+            if (map.getLayer(outlineLayerId)) map.removeLayer(outlineLayerId);
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+            
+            // Create new source and layers
+            map.addSource(sourceId, {
+              type: 'geojson',
+              data: circleData
+            });
+            
+            map.addLayer({
+              id: layerId,
+              type: 'fill',
+              source: sourceId,
+              paint: {
+                'fill-color': markerColor,
+                'fill-opacity': 0.15
+              }
+            });
+            
+            map.addLayer({
+              id: outlineLayerId,
+              type: 'line',
+              source: sourceId,
+              paint: {
+                'line-color': markerColor,
+                'line-width': 2,
+                'line-opacity': 0.6
+              }
+            });
+            
+            // Fit map to show the circle with padding
+            const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+            const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+            
+            map.fitBounds([
+              [lng - radiusInDegLng, lat - radiusInDegLat],
+              [lng + radiusInDegLng, lat + radiusInDegLat]
+            ], {
+              padding: { top: 100, bottom: 500, left: 50, right: 50 },
+              duration: 500,
+              maxZoom: 16
+            });
+          }
+        })();
+        true;
+      `);
+    } else {
+      setPreviewRadius(null);
+      
+      // Remove preview circle
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          const map = window.map;
+          if (!map) return;
+          
+          const sourceId = 'radius-preview-source';
+          const layerId = 'radius-preview-layer';
+          const outlineLayerId = layerId + '-outline';
+          
+          if (map.getLayer(outlineLayerId)) map.removeLayer(outlineLayerId);
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+          if (map.getSource(sourceId)) map.removeSource(sourceId);
+        })();
+        true;
+      `);
+    }
+  }, [modals.selectedLocation, modals.showAddMarker]);
+
   return (
     <View style={styles.container}>
       <WebView
@@ -611,6 +757,7 @@ export default function MapComponent() {
         selectedLocation={modals.selectedLocation}
         onCloseAddMarker={modals.closeAddMarker}
         onSaveMarker={onSaveMarker}
+        onRadiusPreview={handleRadiusPreview}
         showMarkerDetails={modals.showMarkerDetails}
         selectedMarker={modals.selectedMarker}
         onCloseMarkerDetails={modals.closeMarkerDetails}

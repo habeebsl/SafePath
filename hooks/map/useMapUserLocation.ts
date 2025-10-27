@@ -26,16 +26,17 @@ export function useMapUserLocation({
     const newLat = location.coords.latitude;
     const newLng = location.coords.longitude;
 
-    // Throttle updates to max once every 2 seconds
-    if (now - lastUpdateTime.current < 2000) return;
-
-    // Only update if position changed significantly (more than ~5 meters)
-    if (lastCoords.current) {
+    // Check if we should update position (throttled to 2 seconds)
+    const shouldUpdatePosition = (now - lastUpdateTime.current >= 2000);
+    
+    // Check if position changed significantly
+    let positionChanged = true;
+    if (lastCoords.current && shouldUpdatePosition) {
       const latDiff = Math.abs(newLat - lastCoords.current.lat);
       const lngDiff = Math.abs(newLng - lastCoords.current.lng);
       
       // Skip update if change is less than ~5 meters (~0.00005 degrees)
-      if (latDiff < 0.00005 && lngDiff < 0.00005) return;
+      positionChanged = (latDiff >= 0.00005 || lngDiff >= 0.00005);
     }
 
     // Calculate next waypoint for bearing if on trail
@@ -49,25 +50,28 @@ export function useMapUserLocation({
       }
     }
 
-    // Update the marker and bearing
-    const js = nextWaypoint
-      ? `
-        if (window.map && window.userMarker) {
-          window.userMarker.setLngLat([${newLng}, ${newLat}]);
-          if (window.updateNavigationBearing) {
-            window.updateNavigationBearing(${newLat}, ${newLng}, ${nextWaypoint.lat}, ${nextWaypoint.lon});
-          }
-        }
-      `
-      : `
+    // Update the marker position if enough time passed and position changed
+    if (shouldUpdatePosition && positionChanged) {
+      const js = `
         if (window.map && window.userMarker) {
           window.userMarker.setLngLat([${newLng}, ${newLat}]);
         }
       `;
-    webViewRef.current.injectJavaScript(js);
+      webViewRef.current.injectJavaScript(js);
+      
+      lastUpdateTime.current = now;
+      lastCoords.current = { lat: newLat, lng: newLng };
+    }
 
-    // Remember last update
-    lastUpdateTime.current = now;
-    lastCoords.current = { lat: newLat, lng: newLng };
+    // Always update bearing if navigating (even without position change)
+    // This ensures rotation updates when trail changes or when entering navigation mode
+    if (activeTrail && nextWaypoint) {
+      const js = `
+        if (window.updateNavigationBearing) {
+          window.updateNavigationBearing(${newLat}, ${newLng}, ${nextWaypoint.lat}, ${nextWaypoint.lon});
+        }
+      `;
+      webViewRef.current.injectJavaScript(js);
+    }
   }, [location, mapReady, webViewRef, activeTrail]);
 }

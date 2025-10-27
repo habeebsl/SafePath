@@ -98,11 +98,11 @@ export function useMapUserLocation({ map, mapReady, location, activeTrail }: Use
 
   // Enable/disable navigation mode based on activeTrail
   useEffect(() => {
-    if (!userMarkerElementRef.current) return;
+    if (!userMarkerElementRef.current || !userMarkerRef.current) return;
 
     const el = userMarkerElementRef.current;
 
-    if (activeTrail) {
+    if (activeTrail && location) {
       // Enable navigation mode
       isNavigatingRef.current = true;
       const trailColor = activeTrail.color;
@@ -131,6 +131,22 @@ export function useMapUserLocation({ map, mapReady, location, activeTrail }: Use
       el.appendChild(pulseElement);
       pulseElementRef.current = pulseElement;
 
+      // Calculate initial bearing immediately
+      const currentPos = { lat: location.coords.latitude, lon: location.coords.longitude };
+      const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
+      
+      if (remainingWaypoints.length > 1) {
+        const nextWaypoint = remainingWaypoints[1];
+        const bearing = calculateBearing(
+          location.coords.latitude,
+          location.coords.longitude,
+          nextWaypoint.lat,
+          nextWaypoint.lon
+        );
+        userMarkerRef.current.setRotation(bearing);
+        uiLogger.info('🧭 Initial bearing set:', bearing.toFixed(1), '°');
+      }
+
       uiLogger.info('🧭 Navigation mode enabled with color:', trailColor);
     } else {
       // Disable navigation mode
@@ -156,7 +172,7 @@ export function useMapUserLocation({ map, mapReady, location, activeTrail }: Use
 
       uiLogger.info('🧭 Navigation mode disabled');
     }
-  }, [activeTrail]);
+  }, [activeTrail, location]);
 
   // Update marker position and rotation when location changes
   useEffect(() => {
@@ -166,22 +182,29 @@ export function useMapUserLocation({ map, mapReady, location, activeTrail }: Use
     const newLat = location.coords.latitude;
     const newLng = location.coords.longitude;
 
-    // Throttle updates to max once every 2 seconds
-    if (now - lastUpdateTime.current < 2000) return;
-
-    // Only update if position changed significantly (more than ~5 meters)
-    if (lastCoords.current) {
+    // Check if we should update position (throttled to 2 seconds)
+    const shouldUpdatePosition = (now - lastUpdateTime.current >= 2000);
+    
+    // Check if position changed significantly
+    let positionChanged = true;
+    if (lastCoords.current && shouldUpdatePosition) {
       const latDiff = Math.abs(newLat - lastCoords.current.lat);
       const lngDiff = Math.abs(newLng - lastCoords.current.lng);
       
       // Skip update if change is less than ~5 meters (~0.00005 degrees)
-      if (latDiff < 0.00005 && lngDiff < 0.00005) return;
+      positionChanged = (latDiff >= 0.00005 || lngDiff >= 0.00005);
     }
 
-    // Update marker position
-    userMarkerRef.current.setLngLat([newLng, newLat]);
+    // Update marker position if enough time passed and position changed
+    if (shouldUpdatePosition && positionChanged) {
+      userMarkerRef.current.setLngLat([newLng, newLat]);
+      lastUpdateTime.current = now;
+      lastCoords.current = { lat: newLat, lng: newLng };
+      uiLogger.debug('📍 User marker position updated');
+    }
 
-    // Calculate and update bearing if navigating
+    // Always calculate and update bearing if navigating (even without position change)
+    // This ensures rotation updates when trail changes or when entering navigation mode
     if (isNavigatingRef.current && activeTrail) {
       const currentPos = { lat: newLat, lon: newLng };
       const remainingWaypoints = getRemainingWaypoints(activeTrail.route.waypoints, currentPos);
@@ -195,15 +218,11 @@ export function useMapUserLocation({ map, mapReady, location, activeTrail }: Use
         
         // Set marker rotation
         userMarkerRef.current.setRotation(bearing);
-        uiLogger.debug('🧭 Bearing updated:', bearing.toFixed(1), '°');
+        uiLogger.info('🧭 Bearing updated:', bearing.toFixed(1), '° → next waypoint:', nextWaypoint);
+      } else {
+        uiLogger.warn('⚠️ No remaining waypoints to calculate bearing');
       }
     }
-
-    // Remember last update
-    lastUpdateTime.current = now;
-    lastCoords.current = { lat: newLat, lng: newLng };
-    
-    uiLogger.debug('📍 User marker position updated');
   }, [location, activeTrail]);
 
   return {

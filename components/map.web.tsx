@@ -4,6 +4,7 @@ import { MapOverlays } from '@/components/map/MapOverlays';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
@@ -18,10 +19,12 @@ import { useMapTrailProgressAndUserMarker } from '@/hooks/map/web/useMapTrailPro
 import { useMapUserLocation } from '@/hooks/map/web/useMapUserLocation.web';
 import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { MarkerType } from '@/types/marker';
 import { uiLogger } from '@/utils/logger';
 import { handleManualSync } from '@/utils/map-handlers';
 import Constants from 'expo-constants';
-import React, { useEffect, useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // Import MapLibre CSS
@@ -43,6 +46,7 @@ export default function MapComponent() {
   
   const [refreshing, setRefreshing] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [previewRadius, setPreviewRadius] = useState<{ radius: number; markerType: MarkerType } | null>(null);
   
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
@@ -155,6 +159,15 @@ export default function MapComponent() {
     }
   };
 
+  // Handle radius preview
+  const handleRadiusPreview = useCallback((radius: number | null, markerType: MarkerType) => {
+    if (radius && radius > 0) {
+      setPreviewRadius({ radius, markerType });
+    } else {
+      setPreviewRadius(null);
+    }
+  }, []);
+
   // Only log these on mount or when critical values change
   useEffect(() => {
     if (isClient) {
@@ -181,6 +194,144 @@ export default function MapComponent() {
       window.removeEventListener('mapContextMenu', handleContextMenu);
     };
   }, [isClient, handleMapClick]);
+
+  // Render radius preview circle
+  useEffect(() => {
+    if (!map || !mapReady) return;
+
+    const sourceId = 'radius-preview-source';
+    const layerId = 'radius-preview-layer';
+    const outlineLayerId = `${layerId}-outline`;
+
+    // If no radius or modal closed, remove layers and return
+    if (!previewRadius || previewRadius.radius <= 0 || !modals.selectedLocation || !modals.showAddMarker) {
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      return;
+    }
+
+    const { lat, lng } = modals.selectedLocation;
+    const radiusInMeters = previewRadius.radius;
+    const markerColor = MARKER_CONFIG[previewRadius.markerType].color;
+
+    // Calculate circle coordinates
+    const metersToLngDegrees = (meters: number, latitude: number) => {
+      return meters / (111320 * Math.cos(latitude * Math.PI / 180));
+    };
+    const metersToLatDegrees = (meters: number) => {
+      return meters / 110574;
+    };
+
+    const points = 64;
+    const coordinates: [number, number][] = [];
+    for (let i = 0; i <= points; i++) {
+      const angle = (i / points) * 2 * Math.PI;
+      const dx = radiusInMeters * Math.cos(angle);
+      const dy = radiusInMeters * Math.sin(angle);
+      
+      const lon = lng + metersToLngDegrees(dx, lat);
+      const latCoord = lat + metersToLatDegrees(dy);
+      coordinates.push([lon, latCoord]);
+    }
+
+    const circleData = {
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [coordinates],
+      },
+      properties: {},
+    };
+
+    // Check if source exists - if yes, just update data
+    const existingSource = map.getSource(sourceId);
+    if (existingSource && existingSource.type === 'geojson') {
+      (existingSource as maplibregl.GeoJSONSource).setData(circleData);
+      
+      // Update paint properties for color change
+      map.setPaintProperty(layerId, 'fill-color', markerColor);
+      map.setPaintProperty(outlineLayerId, 'line-color', markerColor);
+      
+      // Fit map to show the circle with padding
+      const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+      const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+      
+      map.fitBounds([
+        [lng - radiusInDegLng, lat - radiusInDegLat],
+        [lng + radiusInDegLng, lat + radiusInDegLat]
+      ], {
+        padding: { top: 100, bottom: 400, left: 100, right: 100 }, // Extra padding for modal
+        duration: 500,
+        maxZoom: 16
+      });
+    } else {
+      // Create source and layers for first time
+      if (!existingSource) {
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: circleData,
+        });
+      }
+
+      if (!map.getLayer(layerId)) {
+        map.addLayer({
+          id: layerId,
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': markerColor,
+            'fill-opacity': 0.15,
+          },
+        });
+      }
+
+      if (!map.getLayer(outlineLayerId)) {
+        map.addLayer({
+          id: outlineLayerId,
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': markerColor,
+            'line-width': 2,
+            'line-opacity': 0.6,
+          },
+        });
+      }
+      
+      // Fit map to show the circle with padding
+      const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+      const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+      
+      map.fitBounds([
+        [lng - radiusInDegLng, lat - radiusInDegLat],
+        [lng + radiusInDegLng, lat + radiusInDegLat]
+      ], {
+        padding: { top: 100, bottom: 400, left: 100, right: 100 },
+        duration: 500,
+        maxZoom: 16
+      });
+    }
+
+    return () => {
+      // Cleanup on unmount only
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+    };
+  }, [map, mapReady, previewRadius, modals.selectedLocation, modals.showAddMarker]);
 
   // Show loading state during SSR or before client hydration
   if (!isClient) {
@@ -241,6 +392,7 @@ export default function MapComponent() {
         selectedLocation={modals.selectedLocation}
         onCloseAddMarker={modals.closeAddMarker}
         onSaveMarker={onSaveMarker}
+        onRadiusPreview={handleRadiusPreview}
         showMarkerDetails={modals.showMarkerDetails}
         selectedMarker={modals.selectedMarker}
         onCloseMarkerDetails={modals.closeMarkerDetails}

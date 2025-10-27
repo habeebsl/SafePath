@@ -39,6 +39,7 @@ export async function initDatabase(): Promise<void> {
         longitude REAL NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
+        radius REAL,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         last_verified INTEGER NOT NULL,
@@ -48,6 +49,17 @@ export async function initDatabase(): Promise<void> {
         synced_to_cloud INTEGER DEFAULT 0
       );
     `);
+    
+    // Migration: Add radius column if it doesn't exist (for existing databases)
+    try {
+      await db.execAsync(`ALTER TABLE markers ADD COLUMN radius REAL;`);
+      dbLogger.info('✅ Added radius column to markers table');
+    } catch (error: any) {
+      // Column already exists or other error - ignore
+      if (!error.message.includes('duplicate column')) {
+        dbLogger.warn('⚠️ Could not add radius column:', error.message);
+      }
+    }
 
     // Create votes table to prevent duplicate votes
     await db.execAsync(`
@@ -228,10 +240,10 @@ export async function addMarker(marker: Marker): Promise<void> {
   try {
     await db.runAsync(
     `INSERT INTO markers (
-      id, type, latitude, longitude, title, description,
+      id, type, latitude, longitude, title, description, radius,
       created_by, created_at, last_verified, agrees, disagrees,
       confidence_score, synced_to_cloud
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       marker.id,
       marker.type,
@@ -239,6 +251,7 @@ export async function addMarker(marker: Marker): Promise<void> {
       marker.longitude,
       marker.title,
       marker.description || '',
+      marker.radius || null,
       marker.createdBy,
       marker.createdAt,
       marker.lastVerified,
@@ -278,6 +291,7 @@ export async function getAllMarkers(): Promise<Marker[]> {
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -314,6 +328,7 @@ export async function getMarkersInBounds(
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,

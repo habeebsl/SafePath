@@ -1,7 +1,9 @@
 import { Icon } from '@/components/Icon';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { getDefaultRadius, MAX_RADIUS, MIN_RADIUS, validateRadius } from '@/constants/marker-radius';
 import { MarkerType } from '@/types/marker';
-import React, { useState } from 'react';
+import Slider from '@react-native-community/slider';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -27,7 +29,9 @@ interface AddMarkerModalProps {
     description: string;
     latitude: number;
     longitude: number;
+    radius?: number;
   }) => void;
+  onRadiusPreview?: (radius: number | null, markerType: MarkerType) => void;
 }
 
 export function AddMarkerModal({
@@ -36,16 +40,69 @@ export function AddMarkerModal({
   longitude,
   onClose,
   onSave,
+  onRadiusPreview,
 }: AddMarkerModalProps) {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
   const [selectedType, setSelectedType] = useState<MarkerType>('danger');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [radius, setRadius] = useState<number>(getDefaultRadius(selectedType));
+  const [radiusText, setRadiusText] = useState<string>(getDefaultRadius(selectedType).toString());
+  const [isDraggingSlider, setIsDraggingSlider] = useState(false);
+
+  const handleTypeChange = (type: MarkerType) => {
+    setSelectedType(type);
+    const defaultRadius = getDefaultRadius(type);
+    setRadius(defaultRadius);
+    setRadiusText(defaultRadius.toString());
+  };
+
+  const handleRadiusSliderChange = (value: number) => {
+    setRadius(value);
+    setRadiusText(value.toString());
+  };
+
+  const handleSliderStart = () => {
+    setIsDraggingSlider(true);
+  };
+
+  const handleSliderEnd = () => {
+    setIsDraggingSlider(false);
+  };
+
+  const handleRadiusTextChange = (text: string) => {
+    setRadiusText(text);
+    const numValue = parseInt(text, 10);
+    if (!isNaN(numValue)) {
+      setRadius(Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, numValue)));
+    }
+  };
+
+  // Call preview callback when radius or type changes
+  useEffect(() => {
+    if (visible && onRadiusPreview) {
+      onRadiusPreview(radius > 0 ? radius : null, selectedType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [radius, selectedType, visible]);
+
+  // Clear preview on close
+  useEffect(() => {
+    if (!visible && onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const handleSave = () => {
     if (!title.trim()) {
       alert('Please enter a title');
+      return;
+    }
+
+    if (!validateRadius(radius)) {
+      alert(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`);
       return;
     }
 
@@ -55,12 +112,16 @@ export function AddMarkerModal({
       description: description.trim(),
       latitude,
       longitude,
+      radius: radius > 0 ? radius : undefined,
     });
 
     // Reset form
     setTitle('');
     setDescription('');
     setSelectedType('danger');
+    const defaultRadius = getDefaultRadius('danger');
+    setRadius(defaultRadius);
+    setRadiusText(defaultRadius.toString());
   };
 
   const markerTypes: MarkerType[] = [
@@ -84,31 +145,37 @@ export function AddMarkerModal({
     >
       <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
-          style={styles.overlayTouchable}
+          style={[styles.overlayTouchable, { opacity: isDraggingSlider ? 0.1 : 1 }]}
           activeOpacity={1}
           onPress={onClose}
+          disabled={isDraggingSlider}
         />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.keyboardView, isDesktop ? styles.keyboardViewDesktop : undefined]}
           keyboardVerticalOffset={0}
         >
-          <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
+          <View style={[
+            styles.modal, 
+            isDesktop && styles.modalDesktop,
+            { backgroundColor: isDraggingSlider ? 'rgba(255, 255, 255, 0.05)' : '#fff' }
+          ]}>
               {/* Header */}
-              <View style={styles.header}>
+              <View style={[styles.header, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
                 <Text style={styles.headerTitle}>Add Safety Marker</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton} disabled={isDraggingSlider}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
 
           <ScrollView 
-            style={styles.content} 
+            style={[styles.content, { opacity: isDraggingSlider ? 0.05 : 1 }]} 
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             removeClippedSubviews={true}
             overScrollMode="never"
+            scrollEnabled={!isDraggingSlider}
           >
             {/* Location Display */}
             <View style={styles.section}>
@@ -140,7 +207,7 @@ export function AddMarkerModal({
                           borderWidth: 2,
                         },
                       ]}
-                      onPress={() => setSelectedType(type)}
+                      onPress={() => handleTypeChange(type)}
                     >
                       <View
                         style={[
@@ -186,6 +253,42 @@ export function AddMarkerModal({
               />
             </View>
 
+            {/* Radius Input */}
+            {radius > 0 && (
+              <View style={styles.section}>
+                <View style={styles.radiusHeader}>
+                  <Text style={styles.sectionLabel}>Affected Area Radius</Text>
+                  <View style={styles.radiusValueContainer}>
+                    <TextInput
+                      style={styles.radiusInput}
+                      value={radiusText}
+                      onChangeText={handleRadiusTextChange}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                    />
+                    <Text style={styles.radiusUnit}>meters</Text>
+                  </View>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={MIN_RADIUS}
+                  maximumValue={MAX_RADIUS}
+                  step={10}
+                  value={radius}
+                  onValueChange={handleRadiusSliderChange}
+                  onSlidingStart={handleSliderStart}
+                  onSlidingComplete={handleSliderEnd}
+                  minimumTrackTintColor={MARKER_CONFIG[selectedType].color}
+                  maximumTrackTintColor="#ddd"
+                  thumbTintColor={MARKER_CONFIG[selectedType].color}
+                />
+                <View style={styles.radiusLabels}>
+                  <Text style={styles.radiusLabel}>{MIN_RADIUS}m</Text>
+                  <Text style={styles.radiusLabel}>{MAX_RADIUS}m</Text>
+                </View>
+              </View>
+            )}
+
             {/* Info Note */}
             <View style={styles.infoBox}>
               <Icon name="info-circle" size={16} color="#3B82F6" style={styles.infoIcon} />
@@ -197,10 +300,11 @@ export function AddMarkerModal({
           </ScrollView>
 
           {/* Action Buttons */}
-          <View style={styles.actions}>
+          <View style={[styles.actions, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={onClose}
+              disabled={isDraggingSlider}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -211,6 +315,7 @@ export function AddMarkerModal({
                 { backgroundColor: MARKER_CONFIG[selectedType].color },
               ]}
               onPress={handleSave}
+              disabled={isDraggingSlider}
             >
               <Text style={styles.saveButtonText}>Save Marker</Text>
             </TouchableOpacity>
@@ -404,5 +509,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  } as const,
+  radiusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  } as const,
+  radiusValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  } as const,
+  radiusInput: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    minWidth: 40,
+    textAlign: 'right',
+    padding: 0,
+  } as const,
+  radiusUnit: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 4,
+  } as const,
+  slider: {
+    width: '100%',
+    height: 40,
+  } as const,
+  radiusLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: -8,
+  } as const,
+  radiusLabel: {
+    fontSize: 11,
+    color: '#999',
   } as const,
 });
