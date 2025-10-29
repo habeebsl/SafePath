@@ -4,19 +4,19 @@ import { useDatabase } from '@/contexts/DatabaseContext';
 import { useTrail } from '@/contexts/TrailContext';
 import { Marker } from '@/types/marker';
 import { TrailContext } from '@/types/trail';
+import { uiLogger } from '@/utils/logger';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
+    ActivityIndicator,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+    useWindowDimensions,
 } from 'react-native';
 import { MarkerIcon } from './MarkerIcon';
-import { uiLogger } from '@/utils/logger';
 
 interface MarkerDetailsModalProps {
   visible: boolean;
@@ -194,6 +194,16 @@ export function MarkerDetailsModal({
               <Icon name="clock" size={16} color="#666" style={styles.infoIcon} />
               <Text style={styles.infoText}>Updated {timeAgo}</Text>
             </View>
+
+            {/* Affected Area Radius */}
+            {marker.radius && marker.radius > 0 && (
+              <View style={styles.infoRow}>
+                <Icon name="circle" size={16} color="#666" style={styles.infoIcon} />
+                <Text style={styles.infoText}>
+                  Affected area: {marker.radius}m radius
+                </Text>
+              </View>
+            )}
 
             {/* Description */}
             {marker.description && (

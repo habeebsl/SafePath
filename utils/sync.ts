@@ -260,6 +260,9 @@ async function pushLocalMarkersToCloud(): Promise<void> {
         }
       } else {
         // No similar marker found - create new one
+        syncLogger.info('📤 Preparing to push marker to Supabase:', marker.id);
+        syncLogger.info('📏 Local marker radius:', marker.radius);
+        
         const supabaseMarker: SupabaseMarker = {
           id: marker.id,
           type: marker.type,
@@ -276,6 +279,9 @@ async function pushLocalMarkersToCloud(): Promise<void> {
           confidence_score: marker.confidenceScore,
         };
 
+        syncLogger.info('📦 Supabase marker object:', JSON.stringify(supabaseMarker));
+        syncLogger.info('📏 Supabase marker radius field:', supabaseMarker.radius);
+
         const { error } = await supabase
           .from('markers')
           .upsert(supabaseMarker, { onConflict: 'id' });
@@ -285,6 +291,7 @@ async function pushLocalMarkersToCloud(): Promise<void> {
         } else {
           await markMarkerAsSynced(marker.id);
           syncLogger.info('✅ Pushed new marker:', marker.id);
+          syncLogger.info('✅ Radius value sent to Supabase:', supabaseMarker.radius);
         }
       }
     } catch (error) {

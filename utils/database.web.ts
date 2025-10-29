@@ -81,7 +81,10 @@ export async function getAllMarkers(): Promise<Marker[]> {
 export async function addMarker(marker: Omit<Marker, 'syncedToCloud'>): Promise<void> {
   if (!supabase) throw new Error('Supabase not configured');
   
-  const { error } = await supabase.from('markers').insert({
+  dbLogger.info('💾 [WEB] addMarker called with:', JSON.stringify(marker));
+  dbLogger.info('📏 [WEB] Marker radius:', marker.radius);
+  
+  const insertData = {
     id: marker.id,
     type: marker.type,
     latitude: marker.latitude,
@@ -95,10 +98,19 @@ export async function addMarker(marker: Omit<Marker, 'syncedToCloud'>): Promise<
     agrees: marker.agrees,
     disagrees: marker.disagrees,
     confidence_score: marker.confidenceScore,
-  });
+  };
   
-  if (error) throw error;
-  dbLogger.info('✅ Marker added:', marker.id);
+  dbLogger.info('📦 [WEB] Inserting to Supabase:', JSON.stringify(insertData));
+  dbLogger.info('📏 [WEB] Insert radius value:', insertData.radius);
+  
+  const { error } = await supabase.from('markers').insert(insertData);
+  
+  if (error) {
+    dbLogger.error('❌ [WEB] Error inserting marker:', error);
+    throw error;
+  }
+  
+  dbLogger.info('✅ [WEB] Marker added:', marker.id);
 }
 
 /**

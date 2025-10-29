@@ -238,6 +238,9 @@ export async function addMarker(marker: Marker): Promise<void> {
   }
 
   try {
+    dbLogger.info('💾 addMarker called with marker:', JSON.stringify(marker));
+    dbLogger.info('📏 Marker radius value:', marker.radius);
+    
     await db.runAsync(
     `INSERT INTO markers (
       id, type, latitude, longitude, title, description, radius,
@@ -261,6 +264,8 @@ export async function addMarker(marker: Marker): Promise<void> {
       marker.syncedToServer ? 1 : 0,
     ]
   );
+  
+  dbLogger.info('✅ Marker inserted with radius:', marker.radius || null);
 
   // Add to sync queue if not synced
   if (!marker.syncedToServer) {
@@ -284,7 +289,12 @@ export async function getAllMarkers(): Promise<Marker[]> {
     'SELECT * FROM markers ORDER BY created_at DESC'
   );
 
-  return rows.map(row => ({
+  dbLogger.info(`📖 Reading ${rows.length} markers from database`);
+  if (rows.length > 0) {
+    dbLogger.info(`📏 First marker radius from DB: ${rows[0].radius} (raw value)`);
+  }
+
+  const markers = rows.map(row => ({
     id: row.id,
     type: row.type as MarkerType,
     latitude: row.latitude,
@@ -300,6 +310,12 @@ export async function getAllMarkers(): Promise<Marker[]> {
     confidenceScore: row.confidence_score,
     syncedToServer: row.synced_to_cloud === 1,
   }));
+  
+  if (markers.length > 0) {
+    dbLogger.info(`📏 First marker radius after mapping: ${markers[0].radius}`);
+  }
+  
+  return markers;
 }
 
 /**
@@ -498,6 +514,7 @@ export async function getUnsyncedMarkers(): Promise<Marker[]> {
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -525,6 +542,7 @@ export async function getSyncedMarkers(): Promise<Marker[]> {
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,

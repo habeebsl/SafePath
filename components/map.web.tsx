@@ -12,6 +12,7 @@ import { useTrail } from '@/contexts/TrailContext';
 import { useMapActions } from '@/hooks/map/shared/useMapActions';
 import { useMapInteractions } from '@/hooks/map/shared/useMapInteractions';
 import { useMapInstance } from '@/hooks/map/web/useMapInstance.web';
+import { useMapMarkerRadii } from '@/hooks/map/web/useMapMarkerRadii.web';
 import { useMapMarkers } from '@/hooks/map/web/useMapMarkers.web';
 import { useMapSOSMarkers } from '@/hooks/map/web/useMapSOSMarkers.web';
 import { useMapTrail } from '@/hooks/map/web/useMapTrail.web';
@@ -90,6 +91,13 @@ export default function MapComponent() {
     mapReady,
     markers,
     modals,
+  });
+
+  // Marker radius circles hook
+  useMapMarkerRadii({
+    map,
+    mapReady,
+    markers,
   });
 
   // SOS Markers hook
@@ -332,6 +340,29 @@ export default function MapComponent() {
       }
     };
   }, [map, mapReady, previewRadius, modals.selectedLocation, modals.showAddMarker]);
+
+  // Force clear preview when modal closes
+  useEffect(() => {
+    if (!modals.showAddMarker && map && mapReady) {
+      const sourceId = 'radius-preview-source';
+      const layerId = 'radius-preview-layer';
+      const outlineLayerId = `${layerId}-outline`;
+
+      // Force remove preview layers
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      
+      // Also clear the preview state
+      setPreviewRadius(null);
+    }
+  }, [modals.showAddMarker, map, mapReady]);
 
   // Show loading state during SSR or before client hydration
   if (!isClient) {

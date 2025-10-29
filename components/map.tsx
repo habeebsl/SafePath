@@ -11,6 +11,7 @@ import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
 import { useMapActions } from '@/hooks/map/shared/useMapActions';
 import { useMapInstance } from '@/hooks/map/useMapInstance';
+import { useMapMarkerRadii } from '@/hooks/map/useMapMarkerRadii';
 import { useMapMarkers } from '@/hooks/map/useMapMarkers';
 import { useMapSOSMarkers } from '@/hooks/map/useMapSOSMarkers';
 import { useMapTrail } from '@/hooks/map/useMapTrail';
@@ -22,7 +23,7 @@ import { MarkerType } from '@/types/marker';
 import { uiLogger } from '@/utils/logger';
 import { handleManualSync } from '@/utils/map-handlers';
 import Constants from 'expo-constants';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -53,6 +54,13 @@ export default function MapComponent() {
     mapReady,
     markers,
     refreshing
+  })
+
+  // Display radius circles for markers that have a radius
+  useMapMarkerRadii({
+    webViewRef,
+    mapReady,
+    markers
   })
 
   useMapSOSMarkers({
@@ -723,6 +731,39 @@ export default function MapComponent() {
       `);
     }
   }, [modals.selectedLocation, modals.showAddMarker]);
+
+  // Forcefully clear preview when modal closes
+  useEffect(() => {
+    if (!modals.showAddMarker && webViewRef.current) {
+      uiLogger.info('🧹 Modal closed - forcefully clearing preview radius');
+      setPreviewRadius(null);
+      
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          const map = window.map;
+          if (!map) return;
+          
+          const sourceId = 'radius-preview-source';
+          const layerId = 'radius-preview-layer';
+          const outlineLayerId = layerId + '-outline';
+          
+          if (map.getLayer(outlineLayerId)) {
+            map.removeLayer(outlineLayerId);
+            console.log('✅ Removed preview outline layer');
+          }
+          if (map.getLayer(layerId)) {
+            map.removeLayer(layerId);
+            console.log('✅ Removed preview fill layer');
+          }
+          if (map.getSource(sourceId)) {
+            map.removeSource(sourceId);
+            console.log('✅ Removed preview source');
+          }
+        })();
+        true;
+      `);
+    }
+  }, [modals.showAddMarker]);
 
   return (
     <View style={styles.container}>

@@ -12,6 +12,7 @@ interface HandleSaveMarkerParams {
     description: string;
     latitude: number;
     longitude: number;
+    radius?: number;
   };
   deviceId: string | null;
   dbReady: boolean;
@@ -35,6 +36,9 @@ export async function handleSaveMarker({
   }
 
   logger.info('🗺️ Saving new marker...');
+  logger.info('📊 Data received:', JSON.stringify(data));
+  logger.info('📏 Radius from data:', data.radius);
+  
   const newMarker: Marker = {
     id: `marker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     type: data.type,
@@ -42,6 +46,7 @@ export async function handleSaveMarker({
     longitude: data.longitude,
     title: data.title,
     description: data.description,
+    radius: data.radius,
     createdBy: deviceId || 'unknown_device',
     createdAt: Date.now(),
     lastVerified: Date.now(),
@@ -50,6 +55,9 @@ export async function handleSaveMarker({
     confidenceScore: 100,
     syncedToServer: false,
   };
+  
+  logger.info('💾 Marker object created:', JSON.stringify(newMarker));
+  logger.info('📏 Marker radius:', newMarker.radius);
 
   // Add to database (will automatically sync to cloud when online)
   await dbAddMarker(newMarker);

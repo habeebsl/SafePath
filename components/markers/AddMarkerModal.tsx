@@ -96,6 +96,8 @@ export function AddMarkerModal({
   }, [visible]);
 
   const handleSave = () => {
+    console.log('💾 handleSave called - radius state:', radius);
+    
     if (!title.trim()) {
       alert('Please enter a title');
       return;
@@ -106,14 +108,22 @@ export function AddMarkerModal({
       return;
     }
 
-    onSave({
+    // Clear preview BEFORE calling onSave
+    if (onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+
+    const markerData = {
       type: selectedType,
       title: title.trim(),
       description: description.trim(),
       latitude,
       longitude,
       radius: radius > 0 ? radius : undefined,
-    });
+    };
+    
+    console.log('📤 Calling onSave with data:', markerData);
+    onSave(markerData);
 
     // Reset form
     setTitle('');
@@ -122,6 +132,14 @@ export function AddMarkerModal({
     const defaultRadius = getDefaultRadius('danger');
     setRadius(defaultRadius);
     setRadiusText(defaultRadius.toString());
+  };
+
+  const handleClose = () => {
+    // Clear preview when closing without saving
+    if (onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+    onClose();
   };
 
   const markerTypes: MarkerType[] = [
@@ -140,14 +158,14 @@ export function AddMarkerModal({
       visible={visible}
       animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent={true}
     >
       <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
           style={[styles.overlayTouchable, { opacity: isDraggingSlider ? 0.1 : 1 }]}
           activeOpacity={1}
-          onPress={onClose}
+          onPress={handleClose}
           disabled={isDraggingSlider}
         />
         <KeyboardAvoidingView
@@ -163,7 +181,7 @@ export function AddMarkerModal({
               {/* Header */}
               <View style={[styles.header, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
                 <Text style={styles.headerTitle}>Add Safety Marker</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton} disabled={isDraggingSlider}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton} disabled={isDraggingSlider}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -303,7 +321,7 @@ export function AddMarkerModal({
           <View style={[styles.actions, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={onClose}
+              onPress={handleClose}
               disabled={isDraggingSlider}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
