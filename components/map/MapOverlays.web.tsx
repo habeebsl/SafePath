@@ -5,6 +5,7 @@
 
 import { Alert } from '@/components/Alert';
 import { Icon } from '@/components/Icon';
+import { SOSTorchButton } from '@/components/sos/SOSTorchButton';
 import { useSOS } from '@/contexts/SOSContext';
 import { LocationTrackingStatus } from '@/hooks/useLocationTracking';
 import { Trail } from '@/types/trail';
@@ -149,6 +150,9 @@ export function MapOverlays({
           </View>
         </View>
       )}
+
+      {/* SOS Torch Button - positioned below the button stack */}
+      <SOSTorchButton />
 
       {/* Current location info - Only show when NO active trail */}
       {location && !activeTrail && (

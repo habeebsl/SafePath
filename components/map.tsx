@@ -2,6 +2,7 @@ import { MapModals } from '@/components/map/MapModals';
 import { MapOverlays } from '@/components/map/MapOverlays';
 import { SOSButton } from '@/components/sos/SOSButton';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
+import { SOSTorchButton } from '@/components/sos/SOSTorchButton';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
@@ -813,6 +814,9 @@ export default function MapComponent() {
 
       {/* SOS Button */}
       <SOSButton />
+
+      {/* SOS Torch Button */}
+      <SOSTorchButton />
 
       {/* Trail Bottom Bar */}
       <TrailBottomBar />
