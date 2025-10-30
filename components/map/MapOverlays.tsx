@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   },
   syncButton: {
     position: 'absolute',
-    bottom: 280, // Top of button stack
+    bottom: 360, // Top of button stack
     right: 10,
     width: 60,
     height: 60,

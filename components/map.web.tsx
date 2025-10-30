@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
   },
   recenterButton: {
     position: 'absolute',
-    bottom: 152,
+    bottom: 212,
     right: 20,
     width: 40,
     height: 40,
@@ -488,7 +488,7 @@ if (typeof document !== 'undefined') {
     /* Position MapLibre navigation controls above recenter button */
     .maplibregl-ctrl-bottom-right {
       right: 10px !important;
-      bottom: 10px !important; /* Position above recenter button (100px) + spacing */
+      bottom: 70px !important; /* Position above recenter button (100px) + spacing */
     }
     
     /* Make zoom buttons larger and match design */

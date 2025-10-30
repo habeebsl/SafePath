@@ -188,7 +188,7 @@ export function SOSTorchButton() {
 const styles = StyleSheet.create({
   button: {
     position: 'absolute',
-    bottom: 120, // Below SOS button in the stack
+    bottom: 200, // Below SOS button in the stack
     right: 10,
     width: 60,
     height: 60,

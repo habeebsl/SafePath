@@ -148,11 +148,11 @@ export function MapOverlays({
               {myActiveSOSRequest ? 'SOS Active' : 'Send SOS'}
             </Text>
           </View>
+
+          {/* SOS Torch Button - in the same button stack */}
+          <SOSTorchButton />
         </View>
       )}
-
-      {/* SOS Torch Button - positioned below the button stack */}
-      <SOSTorchButton />
 
       {/* Current location info - Only show when NO active trail */}
       {location && !activeTrail && (
@@ -233,9 +233,9 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   syncButtonDesktop: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   statusDot: {
     position: 'absolute',
@@ -267,9 +267,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusTextContainerDesktop: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   statusTextOnline: {
     backgroundColor: 'rgba(76, 175, 80, 0.95)',
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   statusTextDesktop: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
   },
   sosButton: {
@@ -297,9 +297,9 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   sosButtonDesktop: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   sosButtonDisabled: {
     backgroundColor: '#999',
@@ -311,9 +311,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   sosTextContainerDesktop: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   sosTextActive: {
     backgroundColor: 'rgba(239, 68, 68, 0.95)', // Red for active SOS
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   sosTextDesktop: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
   },
   dbStatusContainer: {

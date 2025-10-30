@@ -4,9 +4,11 @@
  * SOS = • • • — — — • • • (3 short, 3 long, 3 short)
  */
 
+import { Alert } from '@/components/Alert';
 import { Icon } from '@/components/Icon';
 import { uiLogger } from '@/utils/logger';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Text } from 'react-native';
 
 // SOS Morse code timing (in milliseconds)
 const TIMINGS = {
@@ -56,7 +58,11 @@ export function SOSTorchButton() {
       // Check if getUserMedia is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         uiLogger.error('getUserMedia not available');
-        alert('Camera access is not supported on this browser');
+        Alert.alert(
+          'Not Supported',
+          'Camera access is not supported on this browser. The torch feature requires camera access.',
+          [{ text: 'OK' }]
+        );
         return false;
       }
 
@@ -94,12 +100,20 @@ export function SOSTorchButton() {
         // Clean up if torch not supported
         stream.getTracks().forEach(track => track.stop());
         uiLogger.error('Torch not supported on this device');
-        alert('Flashlight is not supported on this device');
+        Alert.alert(
+          'Not Supported',
+          'Flashlight is not supported on this device.',
+          [{ text: 'OK' }]
+        );
         return false;
       }
     } catch (error) {
       uiLogger.error('Permission denied or error:', error);
-      alert('Camera permission denied. Please allow camera access to use the torch.');
+      Alert.alert(
+        'Permission Denied',
+        'Camera permission denied. Please allow camera access to use the torch.',
+        [{ text: 'OK' }]
+      );
       return false;
     } finally {
       setIsRequesting(false);
@@ -226,25 +240,14 @@ export function SOSTorchButton() {
   const isDesktop = screenWidth >= 768;
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        top: '280px', // Below the sync button container (60 + gap + button heights)
-        right: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: '8px',
-        zIndex: 1000,
-      }}
-    >
+    <>
       {/* Torch Button */}
       <button
         onClick={handlePress}
         style={{
-          width: isDesktop ? '56px' : '44px',
-          height: isDesktop ? '56px' : '44px',
-          borderRadius: isDesktop ? '28px' : '22px',
+          width: isDesktop ? '50px' : '44px',
+          height: isDesktop ? '50px' : '44px',
+          borderRadius: isDesktop ? '25px' : '22px',
           backgroundColor: isActive ? '#FFA500' : '#FFFFFF',
           border: 'none',
           display: 'flex',
@@ -257,7 +260,7 @@ export function SOSTorchButton() {
       >
         <Icon 
           name="lightbulb" 
-          size={isDesktop ? 22 : 16} 
+          size={isDesktop ? 18 : 16} 
           color={isActive ? "#FFFFFF" : "#FFA500"} 
           library="fa5"
         />
@@ -266,24 +269,24 @@ export function SOSTorchButton() {
       {/* Torch Status Text */}
       <div
         style={{
-          paddingLeft: isDesktop ? '14px' : '10px',
-          paddingRight: isDesktop ? '14px' : '10px',
-          paddingTop: isDesktop ? '8px' : '4px',
-          paddingBottom: isDesktop ? '8px' : '4px',
-          borderRadius: isDesktop ? '16px' : '12px',
+          paddingLeft: isDesktop ? '12px' : '10px',
+          paddingRight: isDesktop ? '12px' : '10px',
+          paddingTop: isDesktop ? '6px' : '4px',
+          paddingBottom: isDesktop ? '6px' : '4px',
+          borderRadius: isDesktop ? '14px' : '12px',
           backgroundColor: isActive ? 'rgba(255, 165, 0, 0.95)' : 'rgba(158, 158, 158, 0.95)',
         }}
       >
-        <span
+        <Text
           style={{
             color: '#fff',
-            fontSize: isDesktop ? '15px' : '11px',
+            fontSize: isDesktop ? 13 : 11,
             fontWeight: isDesktop ? '700' : '600',
           }}
         >
           {isActive ? 'Torch Active' : 'SOS Torch'}
-        </span>
+        </Text>
       </div>
-    </div>
+    </>
   );
 }

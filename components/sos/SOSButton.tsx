@@ -62,7 +62,7 @@ export function SOSButton() {
 const styles = StyleSheet.create({
   button: {
     position: 'absolute',
-    bottom: 200, // Middle of button stack
+    bottom: 280, // Middle of button stack
     right: 10,
     width: 60,
     height: 60,
