@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 6,
     elevation: 6,
-    zIndex: 10000,
+    zIndex: 999999,
     minHeight: 56,
   },
   icon: {

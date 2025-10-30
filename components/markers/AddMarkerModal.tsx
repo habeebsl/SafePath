@@ -1,10 +1,13 @@
 import { Icon } from '@/components/Icon';
+import { Toast, ToastType } from '@/components/Toast';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { getDefaultRadius, MAX_RADIUS, MIN_RADIUS, validateRadius } from '@/constants/marker-radius';
+import { useToast } from '@/contexts/ToastContext';
 import { MarkerType } from '@/types/marker';
 import Slider from '@react-native-community/slider';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -44,12 +47,25 @@ export function AddMarkerModal({
 }: AddMarkerModalProps) {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
+  const { showToast: showGlobalToast } = useToast();
   const [selectedType, setSelectedType] = useState<MarkerType>('danger');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [radius, setRadius] = useState<number>(getDefaultRadius(selectedType));
   const [radiusText, setRadiusText] = useState<string>(getDefaultRadius(selectedType).toString());
   const [isDraggingSlider, setIsDraggingSlider] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Local toast state for modal (for errors while modal is open)
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<ToastType>('info');
+  
+  const showLocalToast = (message: string, type: ToastType = 'info') => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
 
   const handleTypeChange = (type: MarkerType) => {
     setSelectedType(type);
@@ -92,21 +108,27 @@ export function AddMarkerModal({
     if (!visible && onRadiusPreview) {
       onRadiusPreview(null, selectedType);
     }
+    // Reset saving state when modal closes
+    if (!visible) {
+      setIsSaving(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     console.log('💾 handleSave called - radius state:', radius);
     
     if (!title.trim()) {
-      alert('Please enter a title');
+      showLocalToast('Please enter a title', 'error');
       return;
     }
 
     if (!validateRadius(radius)) {
-      alert(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`);
+      showLocalToast(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`, 'error');
       return;
     }
+
+    setIsSaving(true);
 
     // Clear preview BEFORE calling onSave
     if (onRadiusPreview) {
@@ -122,16 +144,25 @@ export function AddMarkerModal({
       radius: radius > 0 ? radius : undefined,
     };
     
-    console.log('📤 Calling onSave with data:', markerData);
-    onSave(markerData);
+    try {
+      console.log('📤 Calling onSave with data:', markerData);
+      await onSave(markerData);
 
-    // Reset form
-    setTitle('');
-    setDescription('');
-    setSelectedType('danger');
-    const defaultRadius = getDefaultRadius('danger');
-    setRadius(defaultRadius);
-    setRadiusText(defaultRadius.toString());
+      // Reset form
+      setTitle('');
+      setDescription('');
+      setSelectedType('danger');
+      const defaultRadius = getDefaultRadius('danger');
+      setRadius(defaultRadius);
+      setRadiusText(defaultRadius.toString());
+      
+      // Show success toast using GLOBAL toast (modal will close, so need global)
+      showGlobalToast('Marker created successfully', 'success');
+    } catch (error) {
+      console.error('Error saving marker:', error);
+      showLocalToast('Failed to create marker', 'error');
+      setIsSaving(false);
+    }
   };
 
   const handleClose = () => {
@@ -158,15 +189,16 @@ export function AddMarkerModal({
       visible={visible}
       animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
-      onRequestClose={handleClose}
+      onRequestClose={isSaving ? undefined : handleClose}
       statusBarTranslucent={true}
+      presentationStyle="overFullScreen"
     >
       <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
-          style={[styles.overlayTouchable, { opacity: isDraggingSlider ? 0.1 : 1 }]}
+          style={[styles.overlayTouchable]}
           activeOpacity={1}
           onPress={handleClose}
-          disabled={isDraggingSlider}
+          disabled={isDraggingSlider || isSaving}
         />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -176,24 +208,24 @@ export function AddMarkerModal({
           <View style={[
             styles.modal, 
             isDesktop && styles.modalDesktop,
-            { backgroundColor: isDraggingSlider ? 'rgba(255, 255, 255, 0.05)' : '#fff' }
+            { opacity: isDraggingSlider ? 0.15 : 1 }
           ]}>
               {/* Header */}
-              <View style={[styles.header, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
+              <View style={[styles.header, { opacity: isSaving ? 0.3 : 1 }]}>
                 <Text style={styles.headerTitle}>Add Safety Marker</Text>
-              <TouchableOpacity onPress={handleClose} style={styles.closeButton} disabled={isDraggingSlider}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton} disabled={isDraggingSlider || isSaving}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
 
           <ScrollView 
-            style={[styles.content, { opacity: isDraggingSlider ? 0.05 : 1 }]} 
+            style={[styles.content, { opacity: isSaving ? 0.3 : 1 }]} 
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             removeClippedSubviews={true}
             overScrollMode="never"
-            scrollEnabled={!isDraggingSlider}
+            scrollEnabled={!isSaving && !isDraggingSlider}
           >
             {/* Location Display */}
             <View style={styles.section}>
@@ -318,11 +350,11 @@ export function AddMarkerModal({
           </ScrollView>
 
           {/* Action Buttons */}
-          <View style={[styles.actions, { opacity: isDraggingSlider ? 0.1 : 1 }]}>
+          <View style={[styles.actions, { opacity: isDraggingSlider || isSaving ? 0.3 : 1 }]}>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={handleClose}
-              disabled={isDraggingSlider}
+              disabled={isDraggingSlider || isSaving}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -331,15 +363,28 @@ export function AddMarkerModal({
               style={[
                 styles.saveButton,
                 { backgroundColor: MARKER_CONFIG[selectedType].color },
+                (isDraggingSlider || isSaving) && { opacity: 0.6 }
               ]}
               onPress={handleSave}
-              disabled={isDraggingSlider}
+              disabled={isDraggingSlider || isSaving}
             >
-              <Text style={styles.saveButtonText}>Save Marker</Text>
+              {isSaving ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.saveButtonText}>Save Marker</Text>
+              )}
             </TouchableOpacity>
           </View>
           </View>
         </KeyboardAvoidingView>
+        
+        {/* Local Toast for Modal */}
+        <Toast
+          visible={toastVisible}
+          message={toastMessage}
+          type={toastType}
+          onHide={() => setToastVisible(false)}
+        />
       </View>
     </Modal>
   );

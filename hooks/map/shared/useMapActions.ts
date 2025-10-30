@@ -26,7 +26,8 @@ export function useMapActions({ deviceId, dbReady, dbAddMarker, modals }: UseMap
         },
       });
     } catch (error) {
-      // Handle error (show alert, etc.)
+      // Re-throw error so modal can handle it
+      throw error;
     }
   }, [dbAddMarker, modals]);
 
