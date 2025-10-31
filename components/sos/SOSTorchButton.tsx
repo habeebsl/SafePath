@@ -69,36 +69,45 @@ export function SOSTorchButton() {
     if (!isMountedRef.current || !isActiveRef.current) return;
 
     try {
-      // S - 3 short flashes
+      // S - 3 short flashes (• • •)
       for (let i = 0; i < 3; i++) {
         if (!isMountedRef.current || !isActiveRef.current) return;
         await flashTorch(TIMINGS.SHORT_FLASH);
-        await wait(TIMINGS.GAP_BETWEEN);
+        // Only add gap between flashes, not after the last one
+        if (i < 2) {
+          await wait(TIMINGS.GAP_BETWEEN);
+        }
       }
 
-      // Gap between letters
+      // Gap between letters S and O
       await wait(TIMINGS.GAP_LETTER);
       if (!isMountedRef.current || !isActiveRef.current) return;
 
-      // O - 3 long flashes
+      // O - 3 long flashes (— — —)
       for (let i = 0; i < 3; i++) {
         if (!isMountedRef.current || !isActiveRef.current) return;
         await flashTorch(TIMINGS.LONG_FLASH);
-        await wait(TIMINGS.GAP_BETWEEN);
+        // Only add gap between flashes, not after the last one
+        if (i < 2) {
+          await wait(TIMINGS.GAP_BETWEEN);
+        }
       }
 
-      // Gap between letters
+      // Gap between letters O and S
       await wait(TIMINGS.GAP_LETTER);
       if (!isMountedRef.current || !isActiveRef.current) return;
 
-      // S - 3 short flashes
+      // S - 3 short flashes (• • •)
       for (let i = 0; i < 3; i++) {
         if (!isMountedRef.current || !isActiveRef.current) return;
         await flashTorch(TIMINGS.SHORT_FLASH);
-        await wait(TIMINGS.GAP_BETWEEN);
+        // Only add gap between flashes, not after the last one
+        if (i < 2) {
+          await wait(TIMINGS.GAP_BETWEEN);
+        }
       }
 
-      // Gap before repeat
+      // Gap before repeating the entire SOS pattern
       await wait(TIMINGS.GAP_REPEAT);
       
       // Continue pattern indefinitely until user manually stops
