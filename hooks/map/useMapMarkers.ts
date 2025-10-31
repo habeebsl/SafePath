@@ -20,29 +20,38 @@ export function useMapMarkers({ webViewRef, mapReady, markers, refreshing }: Use
     const js = `
       (function() {
         if (!window.map) return;
+        
+        // Remove existing marker if it exists
         if (window.safePathMarkers['${marker.id}']) {
-          window.map.removeLayer(window.safePathMarkers['${marker.id}']);
+          window.safePathMarkers['${marker.id}'].remove();
           delete window.safePathMarkers['${marker.id}'];
         }
+        
+        // Create marker element
         var markerHTML = ${markerHTMLEscaped};
-        var icon = L.divIcon({
-          className: 'custom-marker',
-          html: markerHTML,
-          iconSize: [40, 50],
-          iconAnchor: [20, 50],
-          popupAnchor: [0, -50]
-        });
-        var marker = L.marker([${marker.latitude}, ${marker.longitude}], {
-          icon: icon,
-          markerId: '${marker.id}'
-        }).addTo(window.map);
-        marker.on('click', function() {
+        var el = document.createElement('div');
+        el.innerHTML = markerHTML;
+        el.style.cursor = 'pointer';
+        el.style.width = '40px';
+        el.style.height = '50px';
+        
+        // Add click handler
+        el.addEventListener('click', function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'markerClick',
             markerId: '${marker.id}'
           }));
         });
-        window.safePathMarkers['${marker.id}'] = marker;
+        
+        // Create MapLibre marker
+        var mapboxMarker = new maplibregl.Marker({
+          element: el,
+          anchor: 'bottom'
+        })
+        .setLngLat([${marker.longitude}, ${marker.latitude}])
+        .addTo(window.map);
+        
+        window.safePathMarkers['${marker.id}'] = mapboxMarker;
       })();
     `;
     webViewRef.current.injectJavaScript(js);
@@ -55,7 +64,7 @@ export function useMapMarkers({ webViewRef, mapReady, markers, refreshing }: Use
       (function() {
         if (!window.map || !window.safePathMarkers) return;
         Object.values(window.safePathMarkers).forEach(function(marker) {
-          window.map.removeLayer(marker);
+          marker.remove();
         });
         window.safePathMarkers = {};
       })();

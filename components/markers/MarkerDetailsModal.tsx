@@ -1,9 +1,12 @@
 import { Icon } from '@/components/Icon';
+import { Toast, ToastType } from '@/components/Toast';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
+import { useToast } from '@/contexts/ToastContext';
 import { useTrail } from '@/contexts/TrailContext';
 import { Marker } from '@/types/marker';
 import { TrailContext } from '@/types/trail';
+import { uiLogger } from '@/utils/logger';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,7 +19,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { MarkerIcon } from './MarkerIcon';
-import { uiLogger } from '@/utils/logger';
 
 interface MarkerDetailsModalProps {
   visible: boolean;
@@ -40,7 +42,22 @@ export function MarkerDetailsModal({
   const [userVote, setUserVote] = useState<'agree' | 'disagree' | null>(providedUserVote || null);
   const [isVoting, setIsVoting] = useState(false);
   const [isLoadingVote, setIsLoadingVote] = useState(false);
+  const [isCreatingTrail, setIsCreatingTrail] = useState(false);
   const [currentMarker, setCurrentMarker] = useState<Marker | null>(initialMarker);
+  
+  // Local toast state for modal (errors while modal is open)
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<ToastType>('info');
+  
+  const showLocalToast = (message: string, type: ToastType = 'info') => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
+
+  // Global toast (for success messages after modal closes)
+  const { showToast: showGlobalToast } = useToast();
 
   // Update current marker when markers array changes (to get fresh vote counts)
   useEffect(() => {
@@ -72,6 +89,11 @@ export function MarkerDetailsModal({
           setIsLoadingVote(false);
         });
     }
+    // Reset states when modal closes
+    if (!visible) {
+      setIsCreatingTrail(false);
+      setIsVoting(false);
+    }
   }, [visible, currentMarker?.id]);
 
   // Early return AFTER all hooks
@@ -101,13 +123,14 @@ export function MarkerDetailsModal({
         providedOnVote(vote);
       }
       
-      // Close modal after successful vote
-      setTimeout(() => {
-        onClose();
-      }, 500);
+      // Close modal first
+      onClose();
+      
+      // Show success toast after modal closes
+      showGlobalToast(`Voted ${vote}`, 'success');
     } catch (error: any) {
       uiLogger.error('Error voting:', error);
-      alert(error.message || 'Failed to record vote. Please try again.');
+      showLocalToast(error.message || 'Failed to record vote', 'error');
     } finally {
       setIsVoting(false);
     }
@@ -115,8 +138,9 @@ export function MarkerDetailsModal({
 
   // Handle navigation
   const handleNavigate = async () => {
-    if (!marker) return;
+    if (!marker || isCreatingTrail) return;
     
+    setIsCreatingTrail(true);
     try {
       // Determine trail context based on marker type
       let trailContext: TrailContext;
@@ -135,9 +159,17 @@ export function MarkerDetailsModal({
       }
       
       await createTrail(marker, trailContext);
+      
+      // Close modal first
       onClose();
-    } catch (error) {
+      
+      // Show success toast after modal closes
+      showGlobalToast('Trail created successfully', 'success');
+    } catch (error: any) {
       uiLogger.error('Error creating trail:', error);
+      showLocalToast(error.message || 'Failed to create trail', 'error');
+    } finally {
+      setIsCreatingTrail(false);
     }
   };
 
@@ -146,19 +178,24 @@ export function MarkerDetailsModal({
       visible={visible}
       animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={isVoting || isCreatingTrail ? undefined : onClose}
       statusBarTranslucent={true}
+      presentationStyle="overFullScreen"
     >
       <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
           style={styles.overlayTouchable}
           activeOpacity={1}
           onPress={onClose}
+          disabled={isVoting || isCreatingTrail}
         />
         <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
             {/* Header with marker type */}
             <View style={[styles.header, { backgroundColor: config.color + '20' }]}>
-              <View style={styles.headerTop}>
+              <View style={[
+                styles.headerTop,
+                (isVoting || isCreatingTrail) && { opacity: 0.3 }
+              ]}>
                 <View style={[styles.markerBadge, { backgroundColor: config.color }]}>
                   <MarkerIcon type={marker.type} size={28} color="#fff" />
                 </View>
@@ -168,7 +205,11 @@ export function MarkerDetailsModal({
                 </Text>
                 <Text style={styles.markerTitle}>{marker.title}</Text>
               </View>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <TouchableOpacity 
+                onPress={onClose} 
+                style={styles.closeButton}
+                disabled={isVoting || isCreatingTrail}
+              >
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -176,7 +217,11 @@ export function MarkerDetailsModal({
 
           <ScrollView 
             style={styles.content} 
-            contentContainerStyle={styles.contentContainer}
+            contentContainerStyle={[
+              styles.contentContainer,
+              (isVoting || isCreatingTrail) && { opacity: 0.3 }
+            ]}
+            scrollEnabled={!isVoting && !isCreatingTrail}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             removeClippedSubviews={true}
@@ -194,6 +239,16 @@ export function MarkerDetailsModal({
               <Icon name="clock" size={16} color="#666" style={styles.infoIcon} />
               <Text style={styles.infoText}>Updated {timeAgo}</Text>
             </View>
+
+            {/* Affected Area Radius */}
+            {marker.radius && marker.radius > 0 && (
+              <View style={styles.infoRow}>
+                <Icon name="circle" size={16} color="#666" style={styles.infoIcon} />
+                <Text style={styles.infoText}>
+                  Affected area: {marker.radius}m radius
+                </Text>
+              </View>
+            )}
 
             {/* Description */}
             {marker.description && (
@@ -327,24 +382,44 @@ export function MarkerDetailsModal({
           </ScrollView>
 
           {/* Action Buttons */}
-          <View style={styles.footer}>
+          <View style={[
+            styles.footer,
+            (isVoting || isCreatingTrail) && { opacity: 0.5 }
+          ]}>
             <TouchableOpacity 
               style={styles.navigateButton} 
               onPress={handleNavigate}
+              disabled={isVoting || isCreatingTrail}
             >
-              <Icon name="location-arrow" size={18} color="#FFFFFF" library="fa5" />
-              <Text style={styles.navigateButtonText}>Navigate Here</Text>
+              {isCreatingTrail ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Icon name="location-arrow" size={18} color="#FFFFFF" library="fa5" />
+                  <Text style={styles.navigateButtonText}>Navigate Here</Text>
+                </>
+              )}
             </TouchableOpacity>
             
             <TouchableOpacity 
               style={styles.closeActionButton} 
               onPress={onClose}
+              disabled={isVoting || isCreatingTrail}
             >
               <Text style={styles.closeActionButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
+      
+      {/* Local Toast for this modal */}
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        duration={3000}
+        onHide={() => setToastVisible(false)}
+      />
     </Modal>
   );
 }// Helper functions

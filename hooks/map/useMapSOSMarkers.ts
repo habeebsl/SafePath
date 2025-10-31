@@ -23,30 +23,38 @@ export function useMapSOSMarkers({ webViewRef, mapReady, sosMarkers }: UseMapSOS
         if (!window.sosMarkers) {
           window.sosMarkers = {};
         }
+        
+        // Remove existing SOS marker if it exists
         if (window.sosMarkers['${sosMarker.id}']) {
-          window.map.removeLayer(window.sosMarkers['${sosMarker.id}']);
+          window.sosMarkers['${sosMarker.id}'].remove();
           delete window.sosMarkers['${sosMarker.id}'];
         }
+        
+        // Create marker element
         var markerHTML = ${markerHTMLEscaped};
-        var icon = L.divIcon({
-          className: 'custom-marker sos-marker',
-          html: markerHTML,
-          iconSize: [48, 58],
-          iconAnchor: [24, 58],
-          popupAnchor: [0, -58]
-        });
-        var marker = L.marker([${sosMarker.latitude}, ${sosMarker.longitude}], {
-          icon: icon,
-          markerId: '${sosMarker.id}',
-          markerType: 'sos'
-        }).addTo(window.map);
-        marker.on('click', function() {
+        var el = document.createElement('div');
+        el.innerHTML = markerHTML;
+        el.style.cursor = 'pointer';
+        el.style.width = '48px';
+        el.style.height = '58px';
+        
+        // Add click handler
+        el.addEventListener('click', function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'sosMarkerClick',
             sosMarkerId: '${sosMarker.id}'
           }));
         });
-        window.sosMarkers['${sosMarker.id}'] = marker;
+        
+        // Create MapLibre marker
+        var mapboxMarker = new maplibregl.Marker({
+          element: el,
+          anchor: 'bottom'
+        })
+        .setLngLat([${sosMarker.longitude}, ${sosMarker.latitude}])
+        .addTo(window.map);
+        
+        window.sosMarkers['${sosMarker.id}'] = mapboxMarker;
       })();
     `;
     webViewRef.current.injectJavaScript(js);
@@ -59,7 +67,7 @@ export function useMapSOSMarkers({ webViewRef, mapReady, sosMarkers }: UseMapSOS
       (function() {
         if (!window.map || !window.sosMarkers) return;
         Object.values(window.sosMarkers).forEach(function(marker) {
-          window.map.removeLayer(marker);
+          marker.remove();
         });
         window.sosMarkers = {};
       })();

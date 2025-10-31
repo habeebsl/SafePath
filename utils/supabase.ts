@@ -1,6 +1,6 @@
+import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
-import { logger } from '@/utils/logger';
 
 // Get Supabase credentials from environment
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
@@ -29,6 +29,7 @@ export type SupabaseMarker = {
   longitude: number;
   title: string;
   description: string | null;
+  radius: number | null;
   created_by: string;
   created_at: number;
   last_verified: number;

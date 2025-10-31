@@ -51,3 +51,24 @@ export function getRemainingWaypoints(
     ...waypoints.slice(closestIndex + 1)
   ];
 }
+
+/**
+ * Calculate bearing (direction) from one point to another
+ * Returns angle in degrees (0-360, where 0 is North)
+ */
+export function calculateBearing(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number
+): number {
+  const lat1 = fromLat * Math.PI / 180;
+  const lat2 = toLat * Math.PI / 180;
+  const dLon = (toLon - fromLon) * Math.PI / 180;
+  
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const bearing = Math.atan2(y, x) * 180 / Math.PI;
+  
+  return bearing;
+}

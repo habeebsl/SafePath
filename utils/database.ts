@@ -1,6 +1,6 @@
 import { Marker, MarkerType } from '@/types/marker';
-import * as SQLite from 'expo-sqlite';
 import { dbLogger } from '@/utils/logger';
+import * as SQLite from 'expo-sqlite';
 
 let db: SQLite.SQLiteDatabase | null = null;
 let isInitializing = false;
@@ -39,6 +39,7 @@ export async function initDatabase(): Promise<void> {
         longitude REAL NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
+        radius REAL,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         last_verified INTEGER NOT NULL,
@@ -48,6 +49,17 @@ export async function initDatabase(): Promise<void> {
         synced_to_cloud INTEGER DEFAULT 0
       );
     `);
+    
+    // Migration: Add radius column if it doesn't exist (for existing databases)
+    try {
+      await db.execAsync(`ALTER TABLE markers ADD COLUMN radius REAL;`);
+      dbLogger.info('✅ Added radius column to markers table');
+    } catch (error: any) {
+      // Column already exists or other error - ignore
+      if (!error.message.includes('duplicate column')) {
+        dbLogger.warn('⚠️ Could not add radius column:', error.message);
+      }
+    }
 
     // Create votes table to prevent duplicate votes
     await db.execAsync(`
@@ -226,12 +238,15 @@ export async function addMarker(marker: Marker): Promise<void> {
   }
 
   try {
+    dbLogger.info('💾 addMarker called with marker:', JSON.stringify(marker));
+    dbLogger.info('📏 Marker radius value:', marker.radius);
+    
     await db.runAsync(
     `INSERT INTO markers (
-      id, type, latitude, longitude, title, description,
+      id, type, latitude, longitude, title, description, radius,
       created_by, created_at, last_verified, agrees, disagrees,
       confidence_score, synced_to_cloud
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       marker.id,
       marker.type,
@@ -239,6 +254,7 @@ export async function addMarker(marker: Marker): Promise<void> {
       marker.longitude,
       marker.title,
       marker.description || '',
+      marker.radius || null,
       marker.createdBy,
       marker.createdAt,
       marker.lastVerified,
@@ -248,6 +264,8 @@ export async function addMarker(marker: Marker): Promise<void> {
       marker.syncedToServer ? 1 : 0,
     ]
   );
+  
+  dbLogger.info('✅ Marker inserted with radius:', marker.radius || null);
 
   // Add to sync queue if not synced
   if (!marker.syncedToServer) {
@@ -271,13 +289,19 @@ export async function getAllMarkers(): Promise<Marker[]> {
     'SELECT * FROM markers ORDER BY created_at DESC'
   );
 
-  return rows.map(row => ({
+  dbLogger.info(`📖 Reading ${rows.length} markers from database`);
+  if (rows.length > 0) {
+    dbLogger.info(`📏 First marker radius from DB: ${rows[0].radius} (raw value)`);
+  }
+
+  const markers = rows.map(row => ({
     id: row.id,
     type: row.type as MarkerType,
     latitude: row.latitude,
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -286,6 +310,12 @@ export async function getAllMarkers(): Promise<Marker[]> {
     confidenceScore: row.confidence_score,
     syncedToServer: row.synced_to_cloud === 1,
   }));
+  
+  if (markers.length > 0) {
+    dbLogger.info(`📏 First marker radius after mapping: ${markers[0].radius}`);
+  }
+  
+  return markers;
 }
 
 /**
@@ -314,6 +344,7 @@ export async function getMarkersInBounds(
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -483,6 +514,7 @@ export async function getUnsyncedMarkers(): Promise<Marker[]> {
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -510,6 +542,7 @@ export async function getSyncedMarkers(): Promise<Marker[]> {
     longitude: row.longitude,
     title: row.title,
     description: row.description,
+    radius: row.radius,
     createdBy: row.created_by,
     createdAt: row.created_at,
     lastVerified: row.last_verified,
@@ -656,14 +689,28 @@ export async function completeSOSMarker(sosId: string): Promise<void> {
   const completedAt = Date.now();
   const expiresAt = completedAt + (5 * 60 * 1000); // 5 minutes from now
 
-  const result = await db.runAsync(
+  // Update the SOS marker status
+  const markerResult = await db.runAsync(
     `UPDATE sos_markers 
      SET status = 'completed', completed_at = ?, expires_at = ?, synced_to_cloud = 0
      WHERE id = ?`,
     [completedAt, expiresAt, sosId]
   );
 
-  dbLogger.info('✅ SOS marker completed:', sosId, '- rows affected:', result.changes);
+  dbLogger.info('✅ SOS marker completed:', sosId, '- rows affected:', markerResult.changes);
+  
+  // Cancel all active responses for this SOS
+  const responsesResult = await db.runAsync(
+    `UPDATE sos_responses
+     SET status = 'cancelled', updated_at = ?, synced_to_cloud = 0
+     WHERE sos_marker_id = ? AND status = 'active'`,
+    [completedAt, sosId]
+  );
+  
+  if (responsesResult.changes > 0) {
+    dbLogger.info('✅ Cancelled', responsesResult.changes, 'active response(s) for completed SOS');
+  }
+  
   dbLogger.info('🔄 Marked as unsynced, will push to cloud on next sync');
 }
 
@@ -726,6 +773,75 @@ export async function deleteAllSOSMarkers(): Promise<number> {
   const result = await db.runAsync('DELETE FROM sos_markers');
   
   return result.changes || 0;
+}
+
+/**
+ * Clean up orphaned SOS responses (responses to completed or non-existent SOS)
+ * This fixes the "already responding to another SOS" bug
+ */
+export async function cleanupOrphanedSOSResponses(deviceId: string): Promise<void> {
+  if (!db) return;
+  
+  try {
+    dbLogger.info('🧹 Starting orphaned response cleanup for device:', deviceId.substring(0, 20));
+    
+    // Get all active responses for this device
+    const activeResponses = await db.getAllAsync<{ sos_marker_id: string }>(
+      `SELECT sos_marker_id FROM sos_responses 
+       WHERE responder_device_id = ? AND status = 'active'`,
+      [deviceId]
+    );
+    
+    dbLogger.info('🔍 Found', activeResponses.length, 'active response(s) in local DB');
+    
+    if (activeResponses.length === 0) {
+      dbLogger.info('✅ No active responses to clean up');
+      return;
+    }
+    
+    // Check which SOS markers still exist and are active
+    const sosIds = activeResponses.map(r => r.sos_marker_id);
+    dbLogger.info('🔍 Checking SOS markers:', sosIds.map(id => id.substring(0, 12)).join(', '));
+    
+    const placeholders = sosIds.map(() => '?').join(',');
+    
+    const activeMarkers = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM sos_markers 
+       WHERE id IN (${placeholders}) AND status = 'active'`,
+      sosIds
+    );
+    
+    dbLogger.info('🔍 Found', activeMarkers.length, 'active SOS marker(s) in local DB');
+    
+    const activeMarkerIds = new Set(activeMarkers.map(m => m.id));
+    
+    // Cancel responses to completed/deleted SOS
+    const orphanedIds = sosIds.filter(id => !activeMarkerIds.has(id));
+    
+    if (orphanedIds.length > 0) {
+      dbLogger.info('🧹 Found', orphanedIds.length, 'orphaned response(s):', orphanedIds.map(id => id.substring(0, 12)).join(', '));
+      
+      const orphanedPlaceholders = orphanedIds.map(() => '?').join(',');
+      const result = await db.runAsync(
+        `UPDATE sos_responses
+         SET status = 'cancelled', updated_at = ?, synced_to_cloud = 0
+         WHERE responder_device_id = ? 
+         AND sos_marker_id IN (${orphanedPlaceholders})
+         AND status = 'active'`,
+        [Date.now(), deviceId, ...orphanedIds]
+      );
+      
+      if (result.changes > 0) {
+        dbLogger.info('✅ Cleaned up', result.changes, 'orphaned SOS response(s)');
+      } else {
+        dbLogger.warn('⚠️ No responses were updated (maybe already cancelled?)');
+      }
+    } else {
+      dbLogger.info('✅ No orphaned responses found (all are for active SOS)');
+    }
+  } catch (error) {
+    dbLogger.error('Error cleaning up orphaned responses:', error);
+  }
 }
 
 /**
@@ -834,6 +950,12 @@ export async function getUserActiveSOSResponse(deviceId: string): Promise<any | 
      WHERE responder_device_id = ? AND status = 'active'`,
     [deviceId]
   );
+
+  if (row) {
+    dbLogger.info('📍 Found active response for device:', deviceId.substring(0, 20), '-> SOS:', row.sos_marker_id.substring(0, 12), 'Status:', row.status);
+  } else {
+    dbLogger.info('✅ No active response for device:', deviceId.substring(0, 20));
+  }
 
   return row || null;
 }

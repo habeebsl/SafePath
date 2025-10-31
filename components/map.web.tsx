@@ -1,67 +1,40 @@
 import { Alert } from '@/components/Alert';
 import { MapModals } from '@/components/map/MapModals';
 import { MapOverlays } from '@/components/map/MapOverlays';
-import { SOSButton } from '@/components/sos/SOSButton';
 import { SOSNotificationBanner } from '@/components/sos/SOSNotificationBanner';
 import { TrailBottomBar } from '@/components/trail/TrailBottomBar';
 import region from '@/config/region.json';
+import { MARKER_CONFIG } from '@/constants/marker-icons';
 import { useDatabase } from '@/contexts/DatabaseContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useSOS } from '@/contexts/SOSContext';
 import { useTrail } from '@/contexts/TrailContext';
+import { useMapActions } from '@/hooks/map/shared/useMapActions';
+import { useMapInteractions } from '@/hooks/map/shared/useMapInteractions';
 import { useMapInstance } from '@/hooks/map/web/useMapInstance.web';
-import { useMapUserLocation } from '@/hooks/map/web/useMapUserLocation.web';
+import { useMapMarkerRadii } from '@/hooks/map/web/useMapMarkerRadii.web';
 import { useMapMarkers } from '@/hooks/map/web/useMapMarkers.web';
 import { useMapSOSMarkers } from '@/hooks/map/web/useMapSOSMarkers.web';
 import { useMapTrail } from '@/hooks/map/web/useMapTrail.web';
 import { useMapTrailProgressAndUserMarker } from '@/hooks/map/web/useMapTrailProgressAndUserMarker.web';
-import { useMapInteractions } from '@/hooks/map/shared/useMapInteractions';
-import { useMapActions } from '@/hooks/map/shared/useMapActions';
+import { useMapUserLocation } from '@/hooks/map/web/useMapUserLocation.web';
 import { useMapModals } from '@/hooks/useMapModals';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { MarkerType } from '@/types/marker';
 import { uiLogger } from '@/utils/logger';
 import { handleManualSync } from '@/utils/map-handlers';
-import { getRemainingWaypoints } from '@/utils/trail-helpers';
 import Constants from 'expo-constants';
-import React, { useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// Dynamically import Leaflet to avoid SSR issues
-let L: any;
-let MapContainer: any;
-let TileLayer: any;
-let LeafletMarker: any;
-let Polyline: any;
-let ZoomControl: any;
-let useMapEvents: any;
-
+// Import MapLibre CSS
 if (typeof window !== 'undefined') {
-  L = require('leaflet');
-  require('leaflet/dist/leaflet.css');
-  const ReactLeaflet = require('react-leaflet');
-  MapContainer = ReactLeaflet.MapContainer;
-  TileLayer = ReactLeaflet.TileLayer;
-  LeafletMarker = ReactLeaflet.Marker;
-  Polyline = ReactLeaflet.Polyline;
-  ZoomControl = ReactLeaflet.ZoomControl;
-  useMapEvents = ReactLeaflet.useMapEvents;
-}
-
-// Component to handle map events (must be inside MapContainer)
-function MapEventHandler({ onContextMenu }: { onContextMenu: (e: any) => void }) {
-  if (!useMapEvents) return null;
-  
-  useMapEvents({
-    contextmenu: (e: any) => {
-      onContextMenu(e);
-    },
-  });
-  
-  return null;
+  require('maplibre-gl/dist/maplibre-gl.css');
 }
 
 export default function MapComponent() {
-  uiLogger.info('🗺️ MapComponent rendering (web version)...');
+  uiLogger.info('🗺️ MapComponent rendering (web version - MapLibre)...');
   
   const { location, isTracking, trackingStatus, currentCountry, isLocating } = useLocation();
   const { markers, addMarker: dbAddMarker, isReady: dbReady, refreshMarkers, triggerSync, deviceId } = useDatabase();
@@ -73,72 +46,109 @@ export default function MapComponent() {
   const modals = useMapModals();
   
   const [refreshing, setRefreshing] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  const [previewRadius, setPreviewRadius] = useState<{ radius: number; markerType: MarkerType } | null>(null);
   
-  // Store references to Leaflet trail
-  const userMarkerOnTrailRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Get MapTiler API key from environment
   const mapTilerKey = Constants.expoConfig?.extra?.mapTilerKey || process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
-  // Calculate initial map center and zoom
-  const initialCenter: [number, number] = location 
-    ? [location.coords.latitude, location.coords.longitude]
-    : [region.center.latitude, region.center.longitude];
-  const initialZoom = location ? 15 : 6;
+  // Calculate initial map center and zoom ONCE (use refs to prevent re-initialization)
+  const initialCenter = useRef<[number, number]>(
+    location 
+      ? [location.coords.latitude, location.coords.longitude]
+      : [region.center.latitude, region.center.longitude]
+  );
+  const initialZoom = useRef(location ? 15 : 6);
+
+  // Detect client-side rendering
+  useEffect(() => {
+    setIsClient(typeof window !== 'undefined');
+  }, []);
 
   // Map instance hook
-  const { mapRef, mapReady, isClient, handleMapRef } = useMapInstance({
+  const { map, mapReady } = useMapInstance({
+    mapContainer: mapContainerRef,
     location,
-    initialCenter,
-    initialZoom,
+    initialCenter: initialCenter.current,
+    initialZoom: initialZoom.current,
+    mapTilerKey,
+    isClient,
   });
 
   // User location marker hook
   useMapUserLocation({
-    location,
+    map,
     mapReady,
+    location,
+    activeTrail,
   });
 
   // Markers hook
   const { refreshMapMarkers } = useMapMarkers({
-    markers,
+    map,
     mapReady,
-    mapRef,
+    markers,
     modals,
+  });
+
+  // Marker radius circles hook
+  useMapMarkerRadii({
+    map,
+    mapReady,
+    markers,
   });
 
   // SOS Markers hook
   useMapSOSMarkers({
-    activeSOSMarkers,
+    map,
     mapReady,
-    mapRef,
-    modals
-  })
+    sosMarkers: activeSOSMarkers,
+    modals,
+  });
+
+  // Debug: Log map ready state
+  useEffect(() => {
+    uiLogger.info('🗺️ Map ready state changed:', mapReady, 'Map instance:', !!map);
+  }, [mapReady, map]);
 
   // Map trail hooks
-  const { trailPolylineRef } = useMapTrail({
-    activeTrail,
+  useMapTrail({
+    map,
     mapReady,
-    mapRef
-  })
+    activeTrail,
+  });
 
   useMapTrailProgressAndUserMarker({
+    map,
+    mapReady,
     location,
     activeTrail,
-    mapReady,
-    mapRef,
-    trailPolylineRef,
-    userMarkerOnTrailRef
-  })
+  });
 
-  const { handleMapClick } = useMapInteractions({ modals })
+  // Debug: Log activeTrail changes
+  useEffect(() => {
+    if (activeTrail) {
+      uiLogger.info('🗺️ Active trail detected in component:', {
+        id: activeTrail.targetMarker.id,
+        waypointsCount: activeTrail.route.waypoints.length,
+        color: activeTrail.color,
+        strategy: activeTrail.route.strategy,
+      });
+    } else {
+      uiLogger.info('🗺️ No active trail');
+    }
+  }, [activeTrail]);
+
+  const { handleMapClick } = useMapInteractions({ modals });
 
   const { onSaveMarker, onVote } = useMapActions({
     deviceId,
     dbReady,
     dbAddMarker,
-    modals
-  })
+    modals,
+  });
 
   // Handle manual sync
   const onManualSync = async () => {
@@ -155,13 +165,204 @@ export default function MapComponent() {
     } finally {
       setRefreshing(false);
     }
-  }; 
+  };
 
-  // Calculate trail waypoints for rendering
-  const trailWaypoints = activeTrail ? getRemainingWaypoints(
-    activeTrail.route.waypoints,
-    location ? { lat: location.coords.latitude, lon: location.coords.longitude } : activeTrail.route.waypoints[0]
-  ) : null;
+  // Handle radius preview
+  const handleRadiusPreview = useCallback((radius: number | null, markerType: MarkerType) => {
+    if (radius && radius > 0) {
+      setPreviewRadius({ radius, markerType });
+    } else {
+      setPreviewRadius(null);
+    }
+  }, []);
+
+  // Only log these on mount or when critical values change
+  useEffect(() => {
+    if (isClient) {
+      uiLogger.info('✅ Client ready, rendering map with MapLibre');
+      uiLogger.info('📍 Initial center:', initialCenter.current, 'Zoom:', initialZoom.current);
+      uiLogger.info('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
+    }
+  }, [isClient, dbReady, markers.length]);
+
+  // Listen for map context menu (right-click) events
+  useEffect(() => {
+    if (!isClient) return;
+
+    const handleContextMenu = (event: Event) => {
+      const customEvent = event as CustomEvent<{ lat: number; lng: number }>;
+      const { lat, lng } = customEvent.detail;
+      handleMapClick(lat, lng);
+    };
+
+    window.addEventListener('mapContextMenu', handleContextMenu);
+    uiLogger.info('👆 Map context menu listener registered');
+
+    return () => {
+      window.removeEventListener('mapContextMenu', handleContextMenu);
+    };
+  }, [isClient, handleMapClick]);
+
+  // Render radius preview circle
+  useEffect(() => {
+    if (!map || !mapReady) return;
+
+    const sourceId = 'radius-preview-source';
+    const layerId = 'radius-preview-layer';
+    const outlineLayerId = `${layerId}-outline`;
+
+    // If no radius or modal closed, remove layers and return
+    if (!previewRadius || previewRadius.radius <= 0 || !modals.selectedLocation || !modals.showAddMarker) {
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      return;
+    }
+
+    const { lat, lng } = modals.selectedLocation;
+    const radiusInMeters = previewRadius.radius;
+    const markerColor = MARKER_CONFIG[previewRadius.markerType].color;
+
+    // Calculate circle coordinates
+    const metersToLngDegrees = (meters: number, latitude: number) => {
+      return meters / (111320 * Math.cos(latitude * Math.PI / 180));
+    };
+    const metersToLatDegrees = (meters: number) => {
+      return meters / 110574;
+    };
+
+    const points = 64;
+    const coordinates: [number, number][] = [];
+    for (let i = 0; i <= points; i++) {
+      const angle = (i / points) * 2 * Math.PI;
+      const dx = radiusInMeters * Math.cos(angle);
+      const dy = radiusInMeters * Math.sin(angle);
+      
+      const lon = lng + metersToLngDegrees(dx, lat);
+      const latCoord = lat + metersToLatDegrees(dy);
+      coordinates.push([lon, latCoord]);
+    }
+
+    const circleData = {
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [coordinates],
+      },
+      properties: {},
+    };
+
+    // Check if source exists - if yes, just update data
+    const existingSource = map.getSource(sourceId);
+    if (existingSource && existingSource.type === 'geojson') {
+      (existingSource as maplibregl.GeoJSONSource).setData(circleData);
+      
+      // Update paint properties for color change
+      map.setPaintProperty(layerId, 'fill-color', markerColor);
+      map.setPaintProperty(outlineLayerId, 'line-color', markerColor);
+      
+      // Fit map to show the circle with padding
+      const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+      const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+      
+      map.fitBounds([
+        [lng - radiusInDegLng, lat - radiusInDegLat],
+        [lng + radiusInDegLng, lat + radiusInDegLat]
+      ], {
+        padding: { top: 100, bottom: 400, left: 100, right: 100 }, // Extra padding for modal
+        duration: 500,
+        maxZoom: 16
+      });
+    } else {
+      // Create source and layers for first time
+      if (!existingSource) {
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: circleData,
+        });
+      }
+
+      if (!map.getLayer(layerId)) {
+        map.addLayer({
+          id: layerId,
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': markerColor,
+            'fill-opacity': 0.15,
+          },
+        });
+      }
+
+      if (!map.getLayer(outlineLayerId)) {
+        map.addLayer({
+          id: outlineLayerId,
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': markerColor,
+            'line-width': 2,
+            'line-opacity': 0.6,
+          },
+        });
+      }
+      
+      // Fit map to show the circle with padding
+      const radiusInDegLng = metersToLngDegrees(radiusInMeters, lat);
+      const radiusInDegLat = metersToLatDegrees(radiusInMeters);
+      
+      map.fitBounds([
+        [lng - radiusInDegLng, lat - radiusInDegLat],
+        [lng + radiusInDegLng, lat + radiusInDegLat]
+      ], {
+        padding: { top: 100, bottom: 400, left: 100, right: 100 },
+        duration: 500,
+        maxZoom: 16
+      });
+    }
+
+    return () => {
+      // Cleanup on unmount only
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+    };
+  }, [map, mapReady, previewRadius, modals.selectedLocation, modals.showAddMarker]);
+
+  // Force clear preview when modal closes
+  useEffect(() => {
+    if (!modals.showAddMarker && map && mapReady) {
+      const sourceId = 'radius-preview-source';
+      const layerId = 'radius-preview-layer';
+      const outlineLayerId = `${layerId}-outline`;
+
+      // Force remove preview layers
+      if (map.getLayer(outlineLayerId)) {
+        map.removeLayer(outlineLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      
+      // Also clear the preview state
+      setPreviewRadius(null);
+    }
+  }, [modals.showAddMarker, map, mapReady]);
 
   // Show loading state during SSR or before client hydration
   if (!isClient) {
@@ -176,92 +377,30 @@ export default function MapComponent() {
     );
   }
 
-  uiLogger.info('✅ Client ready, rendering map with Leaflet:', !!MapContainer);
-  uiLogger.info('📍 Initial center:', initialCenter, 'Zoom:', initialZoom);
-  uiLogger.info('🗺️ Database ready:', dbReady, 'Markers:', markers.length);
-
   return (
     <View style={styles.container}>
-      {MapContainer ? (
-        <>
-        <MapContainer
-          center={initialCenter}
-          zoom={initialZoom}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={false}
-          ref={handleMapRef}
-        >
-        {/* Map Event Handler - for right-click/long-press to add marker */}
-        <MapEventHandler onContextMenu={e => handleMapClick(e.latlng.lat, e.latlng.lng)} />
-        
-        {/* Zoom Control - positioned bottom right */}
-        {ZoomControl && <ZoomControl position="bottomright" />}
-        
-        {/* Tile Layer */}
-        <TileLayer
-          url={mapTilerKey 
-            ? `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${mapTilerKey}`
-            : 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png'
-          }
-          attribution={mapTilerKey 
-            ? '© MapTiler © OpenStreetMap contributors' 
-            : '© OpenStreetMap contributors'
-          }
-          maxZoom={22}
-          minZoom={1}
-        />
-
-        {/* User Location Marker */}
-        {location && L && (
-          <LeafletMarker
-            position={[location.coords.latitude, location.coords.longitude]}
-            icon={L.divIcon({
-              className: 'user-location-marker',
-              html: '<div style="width: 20px; height: 20px; background: #007AFF; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-              iconSize: [26, 26],
-              iconAnchor: [13, 13],
-            })}
-          />
-        )}
-
-        {/* SafePath Markers and SOS Markers are added pr() and addSOSMarkerToMap() 
-            with custom HTML icons. They are NOT rendered here to avoid duplicate markers. */}
-
-        {/* Active Trail */}
-        {trailWaypoints && trailWaypoints.length > 1 && (
-          <Polyline
-            positions={trailWaypoints.map(wp => [wp.lat, wp.lon])}
-            pathOptions={{
-              color: activeTrail?.color || '#007AFF',
-              weight: 4,
-              opacity: 0.8,
-            }}
-          />
-        )}
-      </MapContainer>
+      {/* MapLibre Container */}
+      <div 
+        ref={mapContainerRef} 
+        style={{ width: '100%', height: '100%' }} 
+      />
       
       {/* Recenter Button */}
-      {mapReady && location && (
+      {mapReady && location && map && (
         <TouchableOpacity
           style={styles.recenterButton}
           onPress={() => {
-            if (mapRef.current && location) {
-              mapRef.current.setView(
-                [location.coords.latitude, location.coords.longitude],
-                17,
-                { animate: true }
-              );
-            }
+            map.flyTo({
+              center: [location.coords.longitude, location.coords.latitude],
+              zoom: 17,
+              duration: 1000,
+            });
           }}
         >
-          <Text style={styles.recenterButtonText}>📍</Text>
+          <svg xmlns="http://www.w3.org/2000/svg" height="26px" viewBox="0 -960 960 960" width="26px">
+            <path d="M440-42v-80q-125-14-214.5-103.5T122-440H42v-80h80q14-125 103.5-214.5T440-838v-80h80v80q125 14 214.5 103.5T838-520h80v80h-80q-14 125-103.5 214.5T520-122v80h-80Zm40-158q116 0 198-82t82-198q0-116-82-198t-198-82q-116 0-198 82t-82 198q0 116 82 198t198 82Zm0-120q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T560-480q0-33-23.5-56.5T480-560q-33 0-56.5 23.5T400-480q0 33 23.5 56.5T480-400Zm0-80Z"/>
+          </svg>
         </TouchableOpacity>
-      )}
-      </>
-      ) : (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Map library not loaded</Text>
-        </View>
       )}
 
       {/* Map Overlays (badges, status indicators, sync button) */}
@@ -284,6 +423,7 @@ export default function MapComponent() {
         selectedLocation={modals.selectedLocation}
         onCloseAddMarker={modals.closeAddMarker}
         onSaveMarker={onSaveMarker}
+        onRadiusPreview={handleRadiusPreview}
         showMarkerDetails={modals.showMarkerDetails}
         selectedMarker={modals.selectedMarker}
         onCloseMarkerDetails={modals.closeMarkerDetails}
@@ -295,9 +435,6 @@ export default function MapComponent() {
 
       {/* SOS Notification Banner */}
       <SOSNotificationBanner />
-
-      {/* SOS Button */}
-      <SOSButton />
 
       {/* Trail Bottom Bar */}
       <TrailBottomBar />
@@ -325,44 +462,58 @@ const styles = StyleSheet.create({
   },
   recenterButton: {
     position: 'absolute',
-    bottom: 100,
-    right: 10,
+    bottom: 212,
+    right: 20,
     width: 40,
     height: 40,
     backgroundColor: '#fff',
-    borderRadius: 4,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: 'rgba(0,0,0,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
-    boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
-    elevation: 5,
+    // boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
+    // elevation: 5,
   },
   recenterButtonText: {
     fontSize: 20,
   },
 } as const);
 
-// Add CSS to position zoom controls above recenter button
+// Add CSS to style MapLibre zoom controls - position above recenter button
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `
-    /* Position only zoom control, not all bottom-right controls */
-    .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-      margin-bottom: 130px !important;
+    /* Position MapLibre navigation controls above recenter button */
+    .maplibregl-ctrl-bottom-right {
+      right: 10px !important;
+      bottom: 70px !important; /* Position above recenter button (100px) + spacing */
     }
-    .leaflet-control-zoom a {
+    
+    /* Make zoom buttons larger and match design */
+    .maplibregl-ctrl-group button {
       width: 40px !important;
       height: 40px !important;
-      line-height: 40px !important;
-      font-size: 20px !important;
-      border-radius: 4px !important;
+      border-radius: 10px !important;
       border: 2px solid rgba(0,0,0,0.2) !important;
-      margin-bottom: 4px;
+      background-color: #fff !important;
+      margin: 0 0 4px 0 !important;
     }
-    .leaflet-control-zoom {
-      border: none !important;
+    
+    .maplibregl-ctrl-group button:last-child {
+      margin-bottom: 0 !important;
+    }
+    
+    /* Larger icons */
+    .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+    .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+      background-size: 20px 20px !important;
+    }
+    
+    .maplibregl-ctrl-group {
+      background: transparent !important;
+      box-shadow: none !important;
     }
   `;
   document.head.appendChild(style);

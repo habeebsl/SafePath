@@ -7,11 +7,10 @@
 
 import { Icon } from '@/components/Icon';
 import { useTrail } from '@/contexts/TrailContext';
-import { TRAIL_STYLES } from '@/types/trail';
+import { uiLogger } from '@/utils/logger';
 import { formatDistance } from '@/utils/routing';
 import React from 'react';
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { uiLogger } from '@/utils/logger';
 
 export function TrailBottomBar() {
   const { activeTrail, isLoading, cancelTrail } = useTrail();
@@ -34,14 +33,32 @@ export function TrailBottomBar() {
     return null;
   }
   
-  const trailStyle = TRAIL_STYLES[activeTrail.context];
+  // Use the marker color directly instead of trail context color
+  const markerColor = activeTrail.color;
+  const markerType = activeTrail.targetMarker.type;
   const isOfflineRoute = activeTrail.route.strategy === 'offline';
   
+  // Get appropriate icon based on marker type
+  const getMarkerIcon = () => {
+    switch (markerType) {
+      case 'safe': return 'shield-alt';
+      case 'danger': return 'exclamation-triangle';
+      case 'uncertain': return 'question-circle';
+      case 'medical': return 'medkit';
+      case 'food': return 'utensils';
+      case 'shelter': return 'home';
+      case 'checkpoint': return 'flag-checkered';
+      case 'combat': return 'crosshairs';
+      case 'sos': return 'phone';
+      default: return 'map-marker-alt';
+    }
+  };
+  
   return (
-    <View style={[styles.container, { borderLeftColor: trailStyle.color }, isSmallScreen && styles.containerSmall]}>
+    <View style={[styles.container, { borderLeftColor: markerColor }, isSmallScreen && styles.containerSmall]}>
       {/* Icon indicator */}
-      <View style={[styles.iconContainer, { backgroundColor: trailStyle.color }, isSmallScreen && styles.iconContainerSmall]}>
-        <Text style={[styles.iconText, isSmallScreen && styles.iconTextSmall]}>🧭</Text>
+      <View style={[styles.iconContainer, { backgroundColor: markerColor }, isSmallScreen && styles.iconContainerSmall]}>
+        <Icon name={getMarkerIcon()} size={isSmallScreen ? 18 : 22} color="#fff" library="fa5" />
       </View>
       
       {/* Trail Info - Responsive layout */}
@@ -52,7 +69,8 @@ export function TrailBottomBar() {
           </Text>
           {isOfflineRoute && (
             <View style={[styles.offlineBadge, isSmallScreen && styles.offlineBadgeSmall]}>
-              <Text style={[styles.offlineText, isSmallScreen && styles.offlineTextSmall]}>⚠️ Offline</Text>
+              <Icon name="exclamation-triangle" size={isSmallScreen ? 9 : 11} color="#856404" library="fa5" style={{ marginRight: 4 }} />
+              <Text style={[styles.offlineText, isSmallScreen && styles.offlineTextSmall]}>Offline</Text>
             </View>
           )}
         </View>
@@ -74,8 +92,8 @@ export function TrailBottomBar() {
           
           {!isSmallScreen && (
             <View style={styles.statItem}>
-              <Text style={[styles.label, { color: trailStyle.color }]}>
-                {trailStyle.label}
+              <Text style={[styles.label, { color: markerColor }]}>
+                Navigating
               </Text>
             </View>
           )}
@@ -98,7 +116,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 20, // Same position as location info - they're mutually exclusive
-    left: 10,
+    left: 20,
     right: 10, // Responsive: stretch to fit available width
     backgroundColor: '#FFFFFF',
     borderLeftWidth: 5,
@@ -107,7 +125,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingRight: 16,
     paddingVertical: 14,
-    maxWidth: '400px' as any,
+    maxWidth: '450px' as any,
     boxShadow: '0px 3px 10px 0px rgba(0, 0, 0, 0.2)',
     elevation: 10,
     zIndex: 1000,
@@ -121,10 +139,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 14,
     marginLeft: 10,
-  },
-  
-  iconText: {
-    fontSize: 26,
   },
   
   infoSection: {
@@ -151,6 +165,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   
   offlineText: {
@@ -221,9 +237,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 10,
     marginLeft: 6,
-  },
-  iconTextSmall: {
-    fontSize: 20,
   },
   destinationSmall: {
     fontSize: 13,

@@ -260,6 +260,9 @@ async function pushLocalMarkersToCloud(): Promise<void> {
         }
       } else {
         // No similar marker found - create new one
+        syncLogger.info('📤 Preparing to push marker to Supabase:', marker.id);
+        syncLogger.info('📏 Local marker radius:', marker.radius);
+        
         const supabaseMarker: SupabaseMarker = {
           id: marker.id,
           type: marker.type,
@@ -267,6 +270,7 @@ async function pushLocalMarkersToCloud(): Promise<void> {
           longitude: marker.longitude,
           title: marker.title,
           description: marker.description || null,
+          radius: marker.radius || null,
           created_by: marker.createdBy,
           created_at: marker.createdAt,
           last_verified: marker.lastVerified,
@@ -274,6 +278,9 @@ async function pushLocalMarkersToCloud(): Promise<void> {
           disagrees: marker.disagrees,
           confidence_score: marker.confidenceScore,
         };
+
+        syncLogger.info('📦 Supabase marker object:', JSON.stringify(supabaseMarker));
+        syncLogger.info('📏 Supabase marker radius field:', supabaseMarker.radius);
 
         const { error } = await supabase
           .from('markers')
@@ -284,6 +291,7 @@ async function pushLocalMarkersToCloud(): Promise<void> {
         } else {
           await markMarkerAsSynced(marker.id);
           syncLogger.info('✅ Pushed new marker:', marker.id);
+          syncLogger.info('✅ Radius value sent to Supabase:', supabaseMarker.radius);
         }
       }
     } catch (error) {
@@ -335,6 +343,7 @@ async function pullCloudMarkersToLocal(): Promise<void> {
         longitude: cloudMarker.longitude,
         title: cloudMarker.title,
         description: cloudMarker.description || '',
+        radius: cloudMarker.radius || undefined,
         createdBy: cloudMarker.created_by,
         createdAt: cloudMarker.created_at,
         lastVerified: cloudMarker.last_verified,
@@ -444,6 +453,7 @@ function subscribeToRealtimeUpdates(): void {
             longitude: cloudMarker.longitude,
             title: cloudMarker.title,
             description: cloudMarker.description || '',
+            radius: cloudMarker.radius || undefined,
             createdBy: cloudMarker.created_by,
             createdAt: cloudMarker.created_at,
             lastVerified: cloudMarker.last_verified,
@@ -577,7 +587,20 @@ async function pushSOSResponsesToCloud(): Promise<void> {
         .upsert({ ...supabaseResponse, id: response.id }, { onConflict: 'id' });
 
       if (error) {
-        syncLogger.error('❌ Error pushing SOS response:', response.id, error);
+        // Check if it's a foreign key constraint error (SOS marker doesn't exist)
+        if (error.code === '23503') {
+          syncLogger.warn(
+            '⚠️ SOS marker no longer exists for response:',
+            response.id,
+            '- canceling local response'
+          );
+          // Cancel the local response since the SOS marker is gone
+          const { cancelSOSResponse } = await import('@/utils/database');
+          await cancelSOSResponse(response.sos_marker_id, response.responder_device_id);
+          syncLogger.info('✅ Canceled orphaned response:', response.id);
+        } else {
+          syncLogger.error('❌ Error pushing SOS response:', response.id, error);
+        }
       } else {
         await markSOSResponseAsSynced(response.id);
         syncLogger.info('✅ Pushed SOS response:', response.id);

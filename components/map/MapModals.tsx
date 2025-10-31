@@ -20,7 +20,9 @@ interface MapModalsProps {
     description: string;
     latitude: number;
     longitude: number;
+    radius?: number;
   }) => void;
+  onRadiusPreview?: (radius: number | null, markerType: MarkerType) => void;
 
   // Marker Details Modal
   showMarkerDetails: boolean;
@@ -39,6 +41,7 @@ export function MapModals({
   selectedLocation,
   onCloseAddMarker,
   onSaveMarker,
+  onRadiusPreview,
   showMarkerDetails,
   selectedMarker,
   onCloseMarkerDetails,
@@ -57,6 +60,7 @@ export function MapModals({
           longitude={selectedLocation.lng}
           onClose={onCloseAddMarker}
           onSave={onSaveMarker}
+          onRadiusPreview={onRadiusPreview}
         />
       )}
 

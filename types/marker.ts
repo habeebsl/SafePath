@@ -31,6 +31,7 @@ export interface Marker {
   confidenceScore: number;   // 0-100
   photos?: string[];         // optional photo URIs
   syncedToServer: boolean;   // for P2P sync later
+  radius?: number;           // affected area radius in meters (optional)
 }
 
 export interface Vote {

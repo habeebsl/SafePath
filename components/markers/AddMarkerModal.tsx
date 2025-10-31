@@ -1,8 +1,13 @@
 import { Icon } from '@/components/Icon';
+import { Toast, ToastType } from '@/components/Toast';
 import { MARKER_CONFIG } from '@/constants/marker-icons';
+import { getDefaultRadius, MAX_RADIUS, MIN_RADIUS, validateRadius } from '@/constants/marker-radius';
+import { useToast } from '@/contexts/ToastContext';
 import { MarkerType } from '@/types/marker';
-import React, { useState } from 'react';
+import Slider from '@react-native-community/slider';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -27,7 +32,9 @@ interface AddMarkerModalProps {
     description: string;
     latitude: number;
     longitude: number;
+    radius?: number;
   }) => void;
+  onRadiusPreview?: (radius: number | null, markerType: MarkerType) => void;
 }
 
 export function AddMarkerModal({
@@ -36,31 +43,134 @@ export function AddMarkerModal({
   longitude,
   onClose,
   onSave,
+  onRadiusPreview,
 }: AddMarkerModalProps) {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
+  const { showToast: showGlobalToast } = useToast();
   const [selectedType, setSelectedType] = useState<MarkerType>('danger');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [radius, setRadius] = useState<number>(getDefaultRadius(selectedType));
+  const [radiusText, setRadiusText] = useState<string>(getDefaultRadius(selectedType).toString());
+  const [isDraggingSlider, setIsDraggingSlider] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Local toast state for modal (for errors while modal is open)
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<ToastType>('info');
+  
+  const showLocalToast = (message: string, type: ToastType = 'info') => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
 
-  const handleSave = () => {
+  const handleTypeChange = (type: MarkerType) => {
+    setSelectedType(type);
+    const defaultRadius = getDefaultRadius(type);
+    setRadius(defaultRadius);
+    setRadiusText(defaultRadius.toString());
+  };
+
+  const handleRadiusSliderChange = (value: number) => {
+    setRadius(value);
+    setRadiusText(value.toString());
+  };
+
+  const handleSliderStart = () => {
+    setIsDraggingSlider(true);
+  };
+
+  const handleSliderEnd = () => {
+    setIsDraggingSlider(false);
+  };
+
+  const handleRadiusTextChange = (text: string) => {
+    setRadiusText(text);
+    const numValue = parseInt(text, 10);
+    if (!isNaN(numValue)) {
+      setRadius(Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, numValue)));
+    }
+  };
+
+  // Call preview callback when radius or type changes
+  useEffect(() => {
+    if (visible && onRadiusPreview) {
+      onRadiusPreview(radius > 0 ? radius : null, selectedType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [radius, selectedType, visible]);
+
+  // Clear preview on close
+  useEffect(() => {
+    if (!visible && onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+    // Reset saving state when modal closes
+    if (!visible) {
+      setIsSaving(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const handleSave = async () => {
+    console.log('💾 handleSave called - radius state:', radius);
+    
     if (!title.trim()) {
-      alert('Please enter a title');
+      showLocalToast('Please enter a title', 'error');
       return;
     }
 
-    onSave({
+    if (!validateRadius(radius)) {
+      showLocalToast(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`, 'error');
+      return;
+    }
+
+    setIsSaving(true);
+
+    // Clear preview BEFORE calling onSave
+    if (onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+
+    const markerData = {
       type: selectedType,
       title: title.trim(),
       description: description.trim(),
       latitude,
       longitude,
-    });
+      radius: radius > 0 ? radius : undefined,
+    };
+    
+    try {
+      console.log('📤 Calling onSave with data:', markerData);
+      await onSave(markerData);
 
-    // Reset form
-    setTitle('');
-    setDescription('');
-    setSelectedType('danger');
+      // Reset form
+      setTitle('');
+      setDescription('');
+      setSelectedType('danger');
+      const defaultRadius = getDefaultRadius('danger');
+      setRadius(defaultRadius);
+      setRadiusText(defaultRadius.toString());
+      
+      // Show success toast using GLOBAL toast (modal will close, so need global)
+      showGlobalToast('Marker created successfully', 'success');
+    } catch (error) {
+      console.error('Error saving marker:', error);
+      showLocalToast('Failed to create marker', 'error');
+      setIsSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    // Clear preview when closing without saving
+    if (onRadiusPreview) {
+      onRadiusPreview(null, selectedType);
+    }
+    onClose();
   };
 
   const markerTypes: MarkerType[] = [
@@ -79,36 +189,43 @@ export function AddMarkerModal({
       visible={visible}
       animationType={isDesktop ? "fade" : "slide"}
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={isSaving ? undefined : handleClose}
       statusBarTranslucent={true}
+      presentationStyle="overFullScreen"
     >
       <View style={[styles.overlay, isDesktop && styles.overlayDesktop]}>
         <TouchableOpacity
-          style={styles.overlayTouchable}
+          style={[styles.overlayTouchable]}
           activeOpacity={1}
-          onPress={onClose}
+          onPress={handleClose}
+          disabled={isDraggingSlider || isSaving}
         />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={[styles.keyboardView, isDesktop ? styles.keyboardViewDesktop : undefined]}
           keyboardVerticalOffset={0}
         >
-          <View style={[styles.modal, isDesktop && styles.modalDesktop]}>
+          <View style={[
+            styles.modal, 
+            isDesktop && styles.modalDesktop,
+            { opacity: isDraggingSlider ? 0.15 : 1 }
+          ]}>
               {/* Header */}
-              <View style={styles.header}>
+              <View style={[styles.header, { opacity: isSaving ? 0.3 : 1 }]}>
                 <Text style={styles.headerTitle}>Add Safety Marker</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton} disabled={isDraggingSlider || isSaving}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
 
           <ScrollView 
-            style={styles.content} 
+            style={[styles.content, { opacity: isSaving ? 0.3 : 1 }]} 
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             removeClippedSubviews={true}
             overScrollMode="never"
+            scrollEnabled={!isSaving && !isDraggingSlider}
           >
             {/* Location Display */}
             <View style={styles.section}>
@@ -140,7 +257,7 @@ export function AddMarkerModal({
                           borderWidth: 2,
                         },
                       ]}
-                      onPress={() => setSelectedType(type)}
+                      onPress={() => handleTypeChange(type)}
                     >
                       <View
                         style={[
@@ -186,6 +303,42 @@ export function AddMarkerModal({
               />
             </View>
 
+            {/* Radius Input */}
+            {radius > 0 && (
+              <View style={styles.section}>
+                <View style={styles.radiusHeader}>
+                  <Text style={styles.sectionLabel}>Affected Area Radius</Text>
+                  <View style={styles.radiusValueContainer}>
+                    <TextInput
+                      style={styles.radiusInput}
+                      value={radiusText}
+                      onChangeText={handleRadiusTextChange}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                    />
+                    <Text style={styles.radiusUnit}>meters</Text>
+                  </View>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={MIN_RADIUS}
+                  maximumValue={MAX_RADIUS}
+                  step={10}
+                  value={radius}
+                  onValueChange={handleRadiusSliderChange}
+                  onSlidingStart={handleSliderStart}
+                  onSlidingComplete={handleSliderEnd}
+                  minimumTrackTintColor={MARKER_CONFIG[selectedType].color}
+                  maximumTrackTintColor="#ddd"
+                  thumbTintColor={MARKER_CONFIG[selectedType].color}
+                />
+                <View style={styles.radiusLabels}>
+                  <Text style={styles.radiusLabel}>{MIN_RADIUS}m</Text>
+                  <Text style={styles.radiusLabel}>{MAX_RADIUS}m</Text>
+                </View>
+              </View>
+            )}
+
             {/* Info Note */}
             <View style={styles.infoBox}>
               <Icon name="info-circle" size={16} color="#3B82F6" style={styles.infoIcon} />
@@ -197,10 +350,11 @@ export function AddMarkerModal({
           </ScrollView>
 
           {/* Action Buttons */}
-          <View style={styles.actions}>
+          <View style={[styles.actions, { opacity: isDraggingSlider || isSaving ? 0.3 : 1 }]}>
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={onClose}
+              onPress={handleClose}
+              disabled={isDraggingSlider || isSaving}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -209,14 +363,28 @@ export function AddMarkerModal({
               style={[
                 styles.saveButton,
                 { backgroundColor: MARKER_CONFIG[selectedType].color },
+                (isDraggingSlider || isSaving) && { opacity: 0.6 }
               ]}
               onPress={handleSave}
+              disabled={isDraggingSlider || isSaving}
             >
-              <Text style={styles.saveButtonText}>Save Marker</Text>
+              {isSaving ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.saveButtonText}>Save Marker</Text>
+              )}
             </TouchableOpacity>
           </View>
           </View>
         </KeyboardAvoidingView>
+        
+        {/* Local Toast for Modal */}
+        <Toast
+          visible={toastVisible}
+          message={toastMessage}
+          type={toastType}
+          onHide={() => setToastVisible(false)}
+        />
       </View>
     </Modal>
   );
@@ -404,5 +572,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  } as const,
+  radiusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  } as const,
+  radiusValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  } as const,
+  radiusInput: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    minWidth: 40,
+    textAlign: 'right',
+    padding: 0,
+  } as const,
+  radiusUnit: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 4,
+  } as const,
+  slider: {
+    width: '100%',
+    height: 40,
+  } as const,
+  radiusLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: -8,
+  } as const,
+  radiusLabel: {
+    fontSize: 11,
+    color: '#999',
   } as const,
 });

@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
 import { LocationObject } from 'expo-location';
+import { useEffect, useRef, useState } from 'react';
 
 interface UseMapInstanceOptions {
   webViewRef: React.RefObject<any>;
@@ -10,6 +10,7 @@ export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) 
   const [mapReady, setMapReady] = useState(false);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const initialLocation = useRef<LocationObject | null>(null);
+  const hasRecentered = useRef(false);  // Track if we've already recentered
 
   // Capture the first location we get from GPS
   useEffect(() => {
@@ -19,17 +20,18 @@ export function useMapInstance({ webViewRef, location }: UseMapInstanceOptions) 
     }
   }, [location]);
 
-  // Center map on user location when we first get GPS fix
+  // Center map on user location when we first get GPS fix (ONLY ONCE)
   useEffect(() => {
-    if (initialLocationSet && mapReady && webViewRef.current && location) {
+    if (initialLocationSet && mapReady && webViewRef.current && location && !hasRecentered.current) {
       const js = `
         if (window.map && window.userMarker && window.recenterMap) {
-          var newLatLng = [${location.coords.latitude}, ${location.coords.longitude}];
-          window.userMarker.setLatLng(newLatLng);
+          // MapLibre Marker API expects [lng, lat]
+          window.userMarker.setLngLat([${location.coords.longitude}, ${location.coords.latitude}]);
           window.recenterMap();
         }
       `;
       webViewRef.current.injectJavaScript(js);
+      hasRecentered.current = true;  // Mark as recentered
     }
   }, [initialLocationSet, mapReady, webViewRef]);
 

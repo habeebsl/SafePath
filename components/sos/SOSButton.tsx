@@ -50,9 +50,9 @@ export function SOSButton() {
     >
       <View style={styles.content}>
         {isCreatingSOS ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color="#FF0000" />
         ) : (
-          <Icon name="phone" size={24} color="#fff" library="fa5" />
+          <Icon name="phone" size={24} color="#FF0000" library="fa5" />
         )}
       </View>
     </TouchableOpacity>
@@ -62,18 +62,16 @@ export function SOSButton() {
 const styles = StyleSheet.create({
   button: {
     position: 'absolute',
-    bottom: 270, // Above recenter button (which is at 100px)
+    bottom: 280, // Middle of button stack
     right: 10,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FF0000',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0px 3px 5px 0px rgba(0, 0, 0, 0.3)',
-    elevation: 8,
-    borderWidth: 3,
-    borderColor: '#fff',
+    boxShadow: '0px 2px 4px 0px rgba(0, 0, 0, 0.25)',
+    elevation: 5,
     zIndex: 1000,
   },
   buttonDisabled: {
