@@ -248,7 +248,7 @@ export default function MapComponent() {
         // Initialize MapLibre map with vector tiles
         var map = new maplibregl.Map({
           container: 'map',
-          style: 'https://api.maptiler.com/maps/streets-v2/style.json?key=${mapTilerKey}',
+          style: 'https://api.maptiler.com/maps/streets-v2/style.json?key=' + '${mapTilerKey}',
           center: [initialLng, initialLat],
           zoom: initialZoom,
           attributionControl: true,
@@ -777,6 +777,8 @@ export default function MapComponent() {
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
+        mixedContentMode="always"
+        cacheEnabled={false}
       />
 
       {/* Map Overlays (badges, status indicators, sync button) */}

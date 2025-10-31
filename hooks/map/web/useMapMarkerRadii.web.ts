@@ -13,25 +13,91 @@ interface UseMapMarkerRadiiOptions {
  * Hook to display radius circles for markers that have a radius value
  */
 export function useMapMarkerRadii({ map, mapReady, markers }: UseMapMarkerRadiiOptions) {
+  // Effect to initialize layers once
   useEffect(() => {
     if (!mapReady || !map) return;
 
     const sourceId = 'marker-radii-source';
     const layerId = 'marker-radii-layer';
 
-    // Filter markers that have a radius
-    const markersWithRadius = markers.filter(m => m.radius && m.radius > 0);
+    // Only initialize if not already initialized
+    if (map.getSource(sourceId)) return;
 
-    if (markersWithRadius.length === 0) {
-      // Remove layer and source if no markers have radius
+    // Create empty source
+    map.addSource(sourceId, {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: [],
+      },
+    });
+
+    // Add fill layer (semi-transparent)
+    map.addLayer({
+      id: layerId,
+      type: 'fill',
+      source: sourceId,
+      paint: {
+        'fill-color': [
+          'match',
+          ['get', 'markerType'],
+          'danger', '#FF4444',
+          'safe', '#4CAF50',
+          'warning', '#FF9800',
+          'info', '#2196F3',
+          '#888888', // default
+        ],
+        'fill-opacity': 0.15,
+      },
+    });
+
+    // Add outline layer
+    map.addLayer({
+      id: `${layerId}-outline`,
+      type: 'line',
+      source: sourceId,
+      paint: {
+        'line-color': [
+          'match',
+          ['get', 'markerType'],
+          'danger', '#FF4444',
+          'safe', '#4CAF50',
+          'warning', '#FF9800',
+          'info', '#2196F3',
+          '#888888', // default
+        ],
+        'line-width': 2,
+        'line-opacity': 0.5,
+      },
+    });
+
+    uiLogger.info('🔵 Initialized marker radius layers');
+
+    // Cleanup on unmount only
+    return () => {
+      if (map.getLayer(`${layerId}-outline`)) {
+        map.removeLayer(`${layerId}-outline`);
+      }
       if (map.getLayer(layerId)) {
         map.removeLayer(layerId);
       }
       if (map.getSource(sourceId)) {
         map.removeSource(sourceId);
       }
-      return;
-    }
+    };
+  }, [map, mapReady]);
+
+  // Effect to update data when markers change
+  useEffect(() => {
+    if (!mapReady || !map) return;
+
+    const sourceId = 'marker-radii-source';
+    const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
+    
+    if (!source) return;
+
+    // Filter markers that have a radius
+    const markersWithRadius = markers.filter(m => m.radius && m.radius > 0);
 
     // Create GeoJSON features for all marker radius circles
     const features = markersWithRadius.map(marker => {
@@ -71,69 +137,9 @@ export function useMapMarkerRadii({ map, mapReady, markers }: UseMapMarkerRadiiO
       features,
     };
 
-    // Add or update source
-    const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-    if (source) {
-      source.setData(geojson);
-    } else {
-      map.addSource(sourceId, {
-        type: 'geojson',
-        data: geojson,
-      });
-
-      // Add fill layer (semi-transparent)
-      map.addLayer({
-        id: layerId,
-        type: 'fill',
-        source: sourceId,
-        paint: {
-          'fill-color': [
-            'match',
-            ['get', 'markerType'],
-            'danger', '#FF4444',
-            'safe', '#4CAF50',
-            'warning', '#FF9800',
-            'info', '#2196F3',
-            '#888888', // default
-          ],
-          'fill-opacity': 0.15,
-        },
-      });
-
-      // Add outline layer
-      map.addLayer({
-        id: `${layerId}-outline`,
-        type: 'line',
-        source: sourceId,
-        paint: {
-          'line-color': [
-            'match',
-            ['get', 'markerType'],
-            'danger', '#FF4444',
-            'safe', '#4CAF50',
-            'warning', '#FF9800',
-            'info', '#2196F3',
-            '#888888', // default
-          ],
-          'line-width': 2,
-          'line-opacity': 0.5,
-        },
-      });
-    }
-
-    uiLogger.info(`🔵 Displaying ${markersWithRadius.length} marker radius circles`);
-
-    // Cleanup on unmount
-    return () => {
-      if (map.getLayer(`${layerId}-outline`)) {
-        map.removeLayer(`${layerId}-outline`);
-      }
-      if (map.getLayer(layerId)) {
-        map.removeLayer(layerId);
-      }
-      if (map.getSource(sourceId)) {
-        map.removeSource(sourceId);
-      }
-    };
+    // Update source data without removing/recreating layers
+    source.setData(geojson);
+    
+    uiLogger.info(`🔵 Updated ${markersWithRadius.length} marker radius circles`);
   }, [map, mapReady, markers]);
 }
